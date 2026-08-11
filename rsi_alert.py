@@ -42,7 +42,7 @@ def calc_rsi(df_ticker):
 
 # 3. Zu überwachende Ticker & individuelle Schwellenwerte
 WATCHLIST = [
-    {"sym": "PANW", "name": "Palo Alto Networks", "target_rsi": 30},
+    {"sym": "PANW", "name": "Palo Alto Networks", "target_rsi": 99},
     {"sym": "PLTR", "name": "Palantir Technologies", "target_rsi": 30},
     {"sym": "XYL", "name": "Xylem Inc.", "target_rsi": 35},
     {"sym": "USPY", "name": "iShares S&P 500", "target_rsi": 35},
