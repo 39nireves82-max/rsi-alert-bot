@@ -20,8 +20,8 @@ TELEGRAM_TOKEN = (
 )
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or os.getenv("CHAT_ID")
 
-# Pfad zur zentralen Ticker-Datei im Ordner "Trading Dashboard"
-TICKER_FILE = os.path.join(PARENT_DIR, "Trading Dashboard", "ticker_liste.txt")
+# Pfad zur zentralen Ticker-Datei im Ordner "RSI Bot"
+TICKER_FILE = os.path.join(PARENT_DIR, "RSI Bot", "ticker_liste.txt")
 
 
 # Telegram Nachricht senden

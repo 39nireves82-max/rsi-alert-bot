@@ -4,7 +4,4 @@ XYL;Xylem Inc.
 IQQQ.DE;iShares Global Water (Dist)
 ABBN.SW;ABB Ltd
 PG;Procter & Gamble
-MSFT;Microsoft Corporation
-AAPL;Apple Inc.
-RHM.DE;Rheinmetall AG
 ISPY.SW;L&G Cyber Security UCITS ETF
