@@ -5,3 +5,8 @@ IQQQ.DE;iShares Global Water (Dist)
 ABBN.SW;ABB Ltd
 PG;Procter & Gamble
 ISPY.SW;L&G Cyber Security UCITS ETF
+ND50.F;Nitto Denko Corporation
+8XP.F;XPeng Inc.
+TOR1.F;Toray Industries, Inc.
+FO8.MU;Fortinet Inc
+45C.MU;CrowdStrike Holdings Inc
