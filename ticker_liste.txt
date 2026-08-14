@@ -1,12 +1,14 @@
-PANW;Palo Alto Networks
-PLTR;Palantir Technologies
-XYL;Xylem Inc.
-IQQQ.DE;iShares Global Water (Dist)
-ABBN.SW;ABB Ltd
-PG;Procter & Gamble
-ISPY.SW;L&G Cyber Security UCITS ETF
-ND50.F;Nitto Denko Corporation
-8XP.F;XPeng Inc.
-TOR1.F;Toray Industries, Inc.
-FO8.MU;Fortinet Inc
-45C.MU;CrowdStrike Holdings Inc
+PANW;Palo Alto Networks;Cybersecurity
+PLTR;Palantir Technologies;Cybersecurity
+XYL;Xylem Inc.;Wasser/Industrie
+IQQQ.DE;iShares Global Water (Dist);Wasser/Industrie
+ABBN.SW;ABB Ltd;Tech
+PG;Procter & Gamble;Konsum
+ISPY.SW;L&G Cyber Security UCITS ETF;Cybersecurity
+ND50.F;Nitto Denko Corporation;Wasser/Industrie
+8XP.F;XPeng Inc.;Tech
+TOR1.F;Toray Industries, Inc.;Wasser/Industrie
+FO8.MU;Fortinet Inc;Cybersecurity
+45C.MU;CrowdStrike Holdings Inc;Cybersecurity
+NVDA;NVIDIA Corporation;Tech
+TL0.F;Tesla, Inc.;Tech
