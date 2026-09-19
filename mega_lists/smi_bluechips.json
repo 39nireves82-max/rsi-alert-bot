@@ -1,0 +1,38 @@
+[
+    {
+        "symbol": "NOVN.SW",
+        "name": "Novartis"
+    },
+    {
+        "symbol": "ROG.SW",
+        "name": "Roche"
+    },
+    {
+        "symbol": "NESN.SW",
+        "name": "Nestle"
+    },
+    {
+        "symbol": "UBSG.SW",
+        "name": "UBS Group"
+    },
+    {
+        "symbol": "ZURN.SW",
+        "name": "Zurich Insurance"
+    },
+    {
+        "symbol": "SREN.SW",
+        "name": "Swiss Re"
+    },
+    {
+        "symbol": "SIK.SW",
+        "name": "Sika AG"
+    },
+    {
+        "symbol": "LONN.SW",
+        "name": "Lonza Group"
+    },
+    {
+        "symbol": "CFR.SW",
+        "name": "Richemont"
+    }
+]

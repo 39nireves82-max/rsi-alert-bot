@@ -1,0 +1,42 @@
+[
+    {
+        "symbol": "NVDA",
+        "name": "NVIDIA Corporation"
+    },
+    {
+        "symbol": "TL0.F",
+        "name": "Tesla, Inc."
+    },
+    {
+        "symbol": "AAPL",
+        "name": "Apple Inc."
+    },
+    {
+        "symbol": "MSFT",
+        "name": "Microsoft Corporation"
+    },
+    {
+        "symbol": "GOOGL",
+        "name": "Alphabet Inc. (Google)"
+    },
+    {
+        "symbol": "AMZN",
+        "name": "Amazon.com, Inc."
+    },
+    {
+        "symbol": "META",
+        "name": "Meta Platforms, Inc."
+    },
+    {
+        "symbol": "AMD",
+        "name": "Advanced Micro Devices"
+    },
+    {
+        "symbol": "TSM",
+        "name": "Taiwan Semiconductor"
+    },
+    {
+        "symbol": "ASML",
+        "name": "ASML Holding"
+    }
+]

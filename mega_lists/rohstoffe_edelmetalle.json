@@ -1,0 +1,34 @@
+[
+    {
+        "symbol": "GLD",
+        "name": "SPDR Gold Trust"
+    },
+    {
+        "symbol": "SLV",
+        "name": "iShares Silver Trust"
+    },
+    {
+        "symbol": "GOLD",
+        "name": "Barrick Gold"
+    },
+    {
+        "symbol": "NEM",
+        "name": "Newmont Corporation"
+    },
+    {
+        "symbol": "FCX",
+        "name": "Freeport-McMoRan"
+    },
+    {
+        "symbol": "X",
+        "name": "United States Steel"
+    },
+    {
+        "symbol": "CL=F",
+        "name": "Crude Oil Futures"
+    },
+    {
+        "symbol": "GC=F",
+        "name": "Gold Futures"
+    }
+]

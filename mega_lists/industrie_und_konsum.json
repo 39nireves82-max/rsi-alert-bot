@@ -1,0 +1,42 @@
+[
+    {
+        "symbol": "ABBN.SW",
+        "name": "ABB Ltd"
+    },
+    {
+        "symbol": "ND50.F",
+        "name": "Nitto Denko Corporation"
+    },
+    {
+        "symbol": "TOR1.F",
+        "name": "Toray Industries"
+    },
+    {
+        "symbol": "PG",
+        "name": "Procter & Gamble"
+    },
+    {
+        "symbol": "KO",
+        "name": "Coca-Cola Company"
+    },
+    {
+        "symbol": "PEP",
+        "name": "PepsiCo, Inc."
+    },
+    {
+        "symbol": "JNJ",
+        "name": "Johnson & Johnson"
+    },
+    {
+        "symbol": "MMM",
+        "name": "3M Company"
+    },
+    {
+        "symbol": "HON",
+        "name": "Honeywell International"
+    },
+    {
+        "symbol": "CAT",
+        "name": "Caterpillar Inc."
+    }
+]

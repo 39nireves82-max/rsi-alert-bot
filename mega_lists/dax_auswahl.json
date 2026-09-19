@@ -1,0 +1,38 @@
+[
+    {
+        "symbol": "SAP.DE",
+        "name": "SAP SE"
+    },
+    {
+        "symbol": "SIE.DE",
+        "name": "Siemens AG"
+    },
+    {
+        "symbol": "ALV.DE",
+        "name": "Allianz SE"
+    },
+    {
+        "symbol": "AIR.DE",
+        "name": "Airbus SE"
+    },
+    {
+        "symbol": "DTE.DE",
+        "name": "Deutsche Telekom"
+    },
+    {
+        "symbol": "BMW.DE",
+        "name": "BMW AG"
+    },
+    {
+        "symbol": "MBG.DE",
+        "name": "Mercedes-Benz Group"
+    },
+    {
+        "symbol": "VOW3.DE",
+        "name": "Volkswagen AG"
+    },
+    {
+        "symbol": "BAS.DE",
+        "name": "BASF SE"
+    }
+]

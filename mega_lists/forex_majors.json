@@ -1,0 +1,74 @@
+[
+    {
+        "symbol": "EURUSD=X",
+        "name": "EUR/USD",
+        "tags": [
+            "Forex",
+            "W\u00e4hrungen",
+            "Makro"
+        ]
+    },
+    {
+        "symbol": "GBPUSD=X",
+        "name": "GBP/USD",
+        "tags": [
+            "Forex",
+            "W\u00e4hrungen",
+            "Makro"
+        ]
+    },
+    {
+        "symbol": "USDJPY=X",
+        "name": "USD/JPY",
+        "tags": [
+            "Forex",
+            "W\u00e4hrungen",
+            "Makro"
+        ]
+    },
+    {
+        "symbol": "AUDUSD=X",
+        "name": "AUD/USD",
+        "tags": [
+            "Forex",
+            "W\u00e4hrungen",
+            "Makro"
+        ]
+    },
+    {
+        "symbol": "USDCAD=X",
+        "name": "USD/CAD",
+        "tags": [
+            "Forex",
+            "W\u00e4hrungen",
+            "Makro"
+        ]
+    },
+    {
+        "symbol": "USDCHF=X",
+        "name": "USD/CHF",
+        "tags": [
+            "Forex",
+            "W\u00e4hrungen",
+            "Makro"
+        ]
+    },
+    {
+        "symbol": "EURJPY=X",
+        "name": "EUR/JPY",
+        "tags": [
+            "Forex",
+            "W\u00e4hrungen",
+            "Makro"
+        ]
+    },
+    {
+        "symbol": "DX-Y.NYB",
+        "name": "Dollar Index",
+        "tags": [
+            "Forex",
+            "W\u00e4hrungen",
+            "Makro"
+        ]
+    }
+]

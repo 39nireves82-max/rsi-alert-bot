@@ -1,0 +1,38 @@
+[
+    {
+        "symbol": "QCOM",
+        "name": "QUALCOMM Incorporated"
+    },
+    {
+        "symbol": "TXN",
+        "name": "Texas Instruments"
+    },
+    {
+        "symbol": "INTC",
+        "name": "Intel Corporation"
+    },
+    {
+        "symbol": "CSCO",
+        "name": "Cisco Systems"
+    },
+    {
+        "symbol": "NFLX",
+        "name": "Netflix, Inc."
+    },
+    {
+        "symbol": "SBUX",
+        "name": "Starbucks Corporation"
+    },
+    {
+        "symbol": "PYPL",
+        "name": "PayPal Holdings"
+    },
+    {
+        "symbol": "INTU",
+        "name": "Intuit Inc."
+    },
+    {
+        "symbol": "AMAT",
+        "name": "Applied Materials"
+    }
+]

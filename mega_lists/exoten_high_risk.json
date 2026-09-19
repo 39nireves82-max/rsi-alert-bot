@@ -1,0 +1,34 @@
+[
+    {
+        "symbol": "8XP.F",
+        "name": "XPeng Inc."
+    },
+    {
+        "symbol": "NIO",
+        "name": "NIO Inc."
+    },
+    {
+        "symbol": "PLUG",
+        "name": "Plug Power"
+    },
+    {
+        "symbol": "SPCE",
+        "name": "Virgin Galactic Holdings"
+    },
+    {
+        "symbol": "RIVN",
+        "name": "Rivian Automotive"
+    },
+    {
+        "symbol": "LCID",
+        "name": "Lucid Group"
+    },
+    {
+        "symbol": "CRSP",
+        "name": "CRISPR Therapeutics"
+    },
+    {
+        "symbol": "PACB",
+        "name": "Pacific Biosciences"
+    }
+]

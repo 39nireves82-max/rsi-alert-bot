@@ -1,0 +1,38 @@
+[
+    {
+        "symbol": "PANW",
+        "name": "Palo Alto Networks"
+    },
+    {
+        "symbol": "PLTR",
+        "name": "Palantir Technologies"
+    },
+    {
+        "symbol": "ISPY.SW",
+        "name": "L&G Cyber Security UCITS ETF"
+    },
+    {
+        "symbol": "FO8.MU",
+        "name": "Fortinet Inc"
+    },
+    {
+        "symbol": "45C.MU",
+        "name": "CrowdStrike Holdings Inc"
+    },
+    {
+        "symbol": "OKTA",
+        "name": "Okta, Inc."
+    },
+    {
+        "symbol": "ZS",
+        "name": "Zscaler, Inc."
+    },
+    {
+        "symbol": "CYBR",
+        "name": "CyberArk Software"
+    },
+    {
+        "symbol": "TENB",
+        "name": "Tenable Holdings"
+    }
+]

@@ -1,0 +1,42 @@
+[
+    {
+        "symbol": "BTC-USD",
+        "name": "Bitcoin"
+    },
+    {
+        "symbol": "ETH-USD",
+        "name": "Ethereum"
+    },
+    {
+        "symbol": "KAS-USD",
+        "name": "Kaspa"
+    },
+    {
+        "symbol": "SOL-USD",
+        "name": "Solana"
+    },
+    {
+        "symbol": "ADA-USD",
+        "name": "Cardano"
+    },
+    {
+        "symbol": "XRP-USD",
+        "name": "XRP"
+    },
+    {
+        "symbol": "DOT-USD",
+        "name": "Polkadot"
+    },
+    {
+        "symbol": "LINK-USD",
+        "name": "Chainlink"
+    },
+    {
+        "symbol": "MATIC-USD",
+        "name": "Polygon"
+    },
+    {
+        "symbol": "DOGE-USD",
+        "name": "Dogecoin"
+    }
+]

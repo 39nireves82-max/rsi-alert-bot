@@ -1,0 +1,38 @@
+[
+    {
+        "symbol": "SPY",
+        "name": "SPDR S&P 500 ETF"
+    },
+    {
+        "symbol": "QQQ",
+        "name": "Invesco QQQ Trust"
+    },
+    {
+        "symbol": "DIA",
+        "name": "SPDR Dow Jones Industrial"
+    },
+    {
+        "symbol": "IWM",
+        "name": "iShares Russell 2000 ETF"
+    },
+    {
+        "symbol": "VTI",
+        "name": "Vanguard Total Stock Market"
+    },
+    {
+        "symbol": "VEA",
+        "name": "Vanguard FTSE Developed Markets"
+    },
+    {
+        "symbol": "VWO",
+        "name": "Vanguard FTSE Emerging Markets"
+    },
+    {
+        "symbol": "ARKK",
+        "name": "ARK Innovation ETF"
+    },
+    {
+        "symbol": "SMH",
+        "name": "VanEck Semiconductor ETF"
+    }
+]

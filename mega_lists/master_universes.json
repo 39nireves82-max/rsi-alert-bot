@@ -1,0 +1,1759 @@
+[
+    {
+        "symbol": "NVDA",
+        "name": "NVIDIA",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "AAPL",
+        "name": "Apple",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "MSFT",
+        "name": "Microsoft",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "GOOGL",
+        "name": "Alphabet",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "AMZN",
+        "name": "Amazon",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "META",
+        "name": "Meta Platforms",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "AMD",
+        "name": "Advanced Micro Devices",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "TSM",
+        "name": "Taiwan Semiconductor",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "ASML",
+        "name": "ASML Holding",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "AVGO",
+        "name": "Broadcom",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "QCOM",
+        "name": "Qualcomm",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "ADBE",
+        "name": "Adobe",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "CRM",
+        "name": "Salesforce",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "INTC",
+        "name": "Intel",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "CSCO",
+        "name": "Cisco Systems",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "IBM",
+        "name": "IBM",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "ORCL",
+        "name": "Oracle",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "NOW",
+        "name": "ServiceNow",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "UBER",
+        "name": "Uber",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "PLTR",
+        "name": "Palantir",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "SNOW",
+        "name": "Snowflake",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "DDOG",
+        "name": "Datadog",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "NET",
+        "name": "Cloudflare",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "MDB",
+        "name": "MongoDB",
+        "tags": [
+            "US Tech & KI"
+        ]
+    },
+    {
+        "symbol": "TXN",
+        "name": "Texas Instruments",
+        "tags": [
+            "Halbleiter & Equipment"
+        ]
+    },
+    {
+        "symbol": "AMAT",
+        "name": "Applied Materials",
+        "tags": [
+            "Halbleiter & Equipment"
+        ]
+    },
+    {
+        "symbol": "LRCX",
+        "name": "Lam Research",
+        "tags": [
+            "Halbleiter & Equipment"
+        ]
+    },
+    {
+        "symbol": "KLAC",
+        "name": "KLA Corp",
+        "tags": [
+            "Halbleiter & Equipment"
+        ]
+    },
+    {
+        "symbol": "MU",
+        "name": "Micron Technology",
+        "tags": [
+            "Halbleiter & Equipment"
+        ]
+    },
+    {
+        "symbol": "NXPI",
+        "name": "NXP Semiconductors",
+        "tags": [
+            "Halbleiter & Equipment"
+        ]
+    },
+    {
+        "symbol": "MRVL",
+        "name": "Marvell Technology",
+        "tags": [
+            "Halbleiter & Equipment"
+        ]
+    },
+    {
+        "symbol": "ON",
+        "name": "ON Semiconductor",
+        "tags": [
+            "Halbleiter & Equipment"
+        ]
+    },
+    {
+        "symbol": "MCHP",
+        "name": "Microchip Technology",
+        "tags": [
+            "Halbleiter & Equipment"
+        ]
+    },
+    {
+        "symbol": "MPWR",
+        "name": "Monolithic Power",
+        "tags": [
+            "Halbleiter & Equipment"
+        ]
+    },
+    {
+        "symbol": "ARM",
+        "name": "ARM Holdings",
+        "tags": [
+            "Halbleiter & Equipment"
+        ]
+    },
+    {
+        "symbol": "BRK-B",
+        "name": "Berkshire Hathaway",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "LLY",
+        "name": "Eli Lilly",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "JPM",
+        "name": "JPMorgan Chase",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "XOM",
+        "name": "Exxon Mobil",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "UNH",
+        "name": "UnitedHealth",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "V",
+        "name": "Visa",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "PG",
+        "name": "Procter & Gamble",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "MA",
+        "name": "Mastercard",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "JNJ",
+        "name": "Johnson & Johnson",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "HD",
+        "name": "Home Depot",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "MRK",
+        "name": "Merck & Co",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "CVX",
+        "name": "Chevron",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "KO",
+        "name": "Coca-Cola",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "PEP",
+        "name": "PepsiCo",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "COST",
+        "name": "Costco",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "WMT",
+        "name": "Walmart",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "MCD",
+        "name": "McDonald's",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "ABBV",
+        "name": "AbbVie",
+        "tags": [
+            "S&P 500 Heavyweights"
+        ]
+    },
+    {
+        "symbol": "SAP.DE",
+        "name": "SAP SE",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "SIE.DE",
+        "name": "Siemens",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "ALV.DE",
+        "name": "Allianz",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "AIR.DE",
+        "name": "Airbus",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "DTE.DE",
+        "name": "Deutsche Telekom",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "BMW.DE",
+        "name": "BMW",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "MBG.DE",
+        "name": "Mercedes-Benz",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "VOW3.DE",
+        "name": "Volkswagen",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "BAS.DE",
+        "name": "BASF",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "MUV2.DE",
+        "name": "Munich Re",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "DHL.DE",
+        "name": "DHL Group",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "IFX.DE",
+        "name": "Infineon",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "DBK.DE",
+        "name": "Deutsche Bank",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "RHM.DE",
+        "name": "Rheinmetall",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "BAYN.DE",
+        "name": "Bayer",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "BEI.DE",
+        "name": "Beiersdorf",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "MRK.DE",
+        "name": "Merck KGaA",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "ENR.DE",
+        "name": "Siemens Energy",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "CBK.DE",
+        "name": "Commerzbank",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "SY1.DE",
+        "name": "Symrise",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "MTX.DE",
+        "name": "MTU Aero Engines",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "LHA.DE",
+        "name": "Lufthansa",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "FRA.DE",
+        "name": "Fraport",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "NOEJ.DE",
+        "name": "Norma Group",
+        "tags": [
+            "DAX 40 & MDAX Picks"
+        ]
+    },
+    {
+        "symbol": "NOVN.SW",
+        "name": "Novartis",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "ROG.SW",
+        "name": "Roche",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "NESN.SW",
+        "name": "Nestle",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "UBSG.SW",
+        "name": "UBS Group",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "ZURN.SW",
+        "name": "Zurich Insurance",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "SREN.SW",
+        "name": "Swiss Re",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "SIK.SW",
+        "name": "Sika AG",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "LONN.SW",
+        "name": "Lonza Group",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "CFR.SW",
+        "name": "Richemont",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "HOLN.SW",
+        "name": "Holcim",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "ABBN.SW",
+        "name": "ABB Ltd",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "ALC.SW",
+        "name": "Alcon",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "KNIN.SW",
+        "name": "Kuehne + Nagel",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "SGSN.SW",
+        "name": "SGS",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "GEBN.SW",
+        "name": "Geberit",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "GIVN.SW",
+        "name": "Givaudan",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "SOON.SW",
+        "name": "Sonova",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "VATN.SW",
+        "name": "VAT Group",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "SCHP.SW",
+        "name": "Schindler",
+        "tags": [
+            "SMI & Swiss Midcaps"
+        ]
+    },
+    {
+        "symbol": "CAT",
+        "name": "Caterpillar",
+        "tags": [
+            "Bauwesen & Landschaftsbau"
+        ]
+    },
+    {
+        "symbol": "DE",
+        "name": "Deere & Company",
+        "tags": [
+            "Bauwesen & Landschaftsbau"
+        ]
+    },
+    {
+        "symbol": "TTC",
+        "name": "The Toro Company",
+        "tags": [
+            "Bauwesen & Landschaftsbau"
+        ]
+    },
+    {
+        "symbol": "HUSQ-B.ST",
+        "name": "Husqvarna",
+        "tags": [
+            "Bauwesen & Landschaftsbau"
+        ]
+    },
+    {
+        "symbol": "URI",
+        "name": "United Rentals",
+        "tags": [
+            "Bauwesen & Landschaftsbau"
+        ]
+    },
+    {
+        "symbol": "VMC",
+        "name": "Vulcan Materials",
+        "tags": [
+            "Bauwesen & Landschaftsbau"
+        ]
+    },
+    {
+        "symbol": "MLM",
+        "name": "Martin Marietta",
+        "tags": [
+            "Bauwesen & Landschaftsbau"
+        ]
+    },
+    {
+        "symbol": "BLDR",
+        "name": "Builders FirstSource",
+        "tags": [
+            "Bauwesen & Landschaftsbau"
+        ]
+    },
+    {
+        "symbol": "PWR",
+        "name": "Quanta Services",
+        "tags": [
+            "Bauwesen & Landschaftsbau"
+        ]
+    },
+    {
+        "symbol": "JCI",
+        "name": "Johnson Controls",
+        "tags": [
+            "Bauwesen & Landschaftsbau"
+        ]
+    },
+    {
+        "symbol": "FAST",
+        "name": "Fastenal",
+        "tags": [
+            "Bauwesen & Landschaftsbau"
+        ]
+    },
+    {
+        "symbol": "TM",
+        "name": "Toyota Motor",
+        "tags": [
+            "Automobil & Zulieferer"
+        ]
+    },
+    {
+        "symbol": "F",
+        "name": "Ford Motor",
+        "tags": [
+            "Automobil & Zulieferer"
+        ]
+    },
+    {
+        "symbol": "GM",
+        "name": "General Motors",
+        "tags": [
+            "Automobil & Zulieferer"
+        ]
+    },
+    {
+        "symbol": "RNO.PA",
+        "name": "Renault",
+        "tags": [
+            "Automobil & Zulieferer"
+        ]
+    },
+    {
+        "symbol": "STLA",
+        "name": "Stellantis",
+        "tags": [
+            "Automobil & Zulieferer"
+        ]
+    },
+    {
+        "symbol": "CON.DE",
+        "name": "Continental",
+        "tags": [
+            "Automobil & Zulieferer"
+        ]
+    },
+    {
+        "symbol": "SKF-B.ST",
+        "name": "SKF",
+        "tags": [
+            "Automobil & Zulieferer"
+        ]
+    },
+    {
+        "symbol": "BWA",
+        "name": "BorgWarner",
+        "tags": [
+            "Automobil & Zulieferer"
+        ]
+    },
+    {
+        "symbol": "MGA",
+        "name": "Magna International",
+        "tags": [
+            "Automobil & Zulieferer"
+        ]
+    },
+    {
+        "symbol": "APTV",
+        "name": "Aptiv",
+        "tags": [
+            "Automobil & Zulieferer"
+        ]
+    },
+    {
+        "symbol": "PII",
+        "name": "Polaris",
+        "tags": [
+            "Automobil & Zulieferer"
+        ]
+    },
+    {
+        "symbol": "HOG",
+        "name": "Harley-Davidson",
+        "tags": [
+            "Automobil & Zulieferer"
+        ]
+    },
+    {
+        "symbol": "BTC-USD",
+        "name": "Bitcoin",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "ETH-USD",
+        "name": "Ethereum",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "SOL-USD",
+        "name": "Solana",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "BNB-USD",
+        "name": "BNB",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "XRP-USD",
+        "name": "XRP",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "ADA-USD",
+        "name": "Cardano",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "AVAX-USD",
+        "name": "Avalanche",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "DOGE-USD",
+        "name": "Dogecoin",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "DOT-USD",
+        "name": "Polkadot",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "LINK-USD",
+        "name": "Chainlink",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "MATIC-USD",
+        "name": "Polygon",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "KAS-USD",
+        "name": "Kaspa",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "UNI-USD",
+        "name": "Uniswap",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "LTC-USD",
+        "name": "Litecoin",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "NEAR-USD",
+        "name": "NEAR Protocol",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "ATOM-USD",
+        "name": "Cosmos",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "APT-USD",
+        "name": "Aptos",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "INJ-USD",
+        "name": "Injective",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "RNDR-USD",
+        "name": "Render",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "HBAR-USD",
+        "name": "Hedera",
+        "tags": [
+            "Krypto Top & Altcoins"
+        ]
+    },
+    {
+        "symbol": "CRWD",
+        "name": "CrowdStrike",
+        "tags": [
+            "Cybersecurity"
+        ]
+    },
+    {
+        "symbol": "OKTA",
+        "name": "Okta",
+        "tags": [
+            "Cybersecurity"
+        ]
+    },
+    {
+        "symbol": "ZS",
+        "name": "Zscaler",
+        "tags": [
+            "Cybersecurity"
+        ]
+    },
+    {
+        "symbol": "CYBR",
+        "name": "CyberArk",
+        "tags": [
+            "Cybersecurity"
+        ]
+    },
+    {
+        "symbol": "FTNT",
+        "name": "Fortinet",
+        "tags": [
+            "Cybersecurity"
+        ]
+    },
+    {
+        "symbol": "PANW",
+        "name": "Palo Alto Networks",
+        "tags": [
+            "Cybersecurity"
+        ]
+    },
+    {
+        "symbol": "CHKP",
+        "name": "Check Point",
+        "tags": [
+            "Cybersecurity"
+        ]
+    },
+    {
+        "symbol": "S",
+        "name": "SentinelOne",
+        "tags": [
+            "Cybersecurity"
+        ]
+    },
+    {
+        "symbol": "TENB",
+        "name": "Tenable",
+        "tags": [
+            "Cybersecurity"
+        ]
+    },
+    {
+        "symbol": "QLYS",
+        "name": "Qualys",
+        "tags": [
+            "Cybersecurity"
+        ]
+    },
+    {
+        "symbol": "LMT",
+        "name": "Lockheed Martin",
+        "tags": [
+            "Defense & Aerospace"
+        ]
+    },
+    {
+        "symbol": "RTX",
+        "name": "RTX Corporation",
+        "tags": [
+            "Defense & Aerospace"
+        ]
+    },
+    {
+        "symbol": "NOC",
+        "name": "Northrop Grumman",
+        "tags": [
+            "Defense & Aerospace"
+        ]
+    },
+    {
+        "symbol": "GD",
+        "name": "General Dynamics",
+        "tags": [
+            "Defense & Aerospace"
+        ]
+    },
+    {
+        "symbol": "BA",
+        "name": "Boeing",
+        "tags": [
+            "Defense & Aerospace"
+        ]
+    },
+    {
+        "symbol": "HEI",
+        "name": "Heico",
+        "tags": [
+            "Defense & Aerospace"
+        ]
+    },
+    {
+        "symbol": "TDG",
+        "name": "TransDigm",
+        "tags": [
+            "Defense & Aerospace"
+        ]
+    },
+    {
+        "symbol": "HII",
+        "name": "Huntington Ingalls",
+        "tags": [
+            "Defense & Aerospace"
+        ]
+    },
+    {
+        "symbol": "LHX",
+        "name": "L3Harris Technologies",
+        "tags": [
+            "Defense & Aerospace"
+        ]
+    },
+    {
+        "symbol": "AXON",
+        "name": "Axon Enterprise",
+        "tags": [
+            "Defense & Aerospace"
+        ]
+    },
+    {
+        "symbol": "CRSP",
+        "name": "CRISPR Therapeutics",
+        "tags": [
+            "Pharma & Biotech"
+        ]
+    },
+    {
+        "symbol": "PACB",
+        "name": "Pacific Biosciences",
+        "tags": [
+            "Pharma & Biotech"
+        ]
+    },
+    {
+        "symbol": "VRTX",
+        "name": "Vertex Pharmaceuticals",
+        "tags": [
+            "Pharma & Biotech"
+        ]
+    },
+    {
+        "symbol": "REGN",
+        "name": "Regeneron",
+        "tags": [
+            "Pharma & Biotech"
+        ]
+    },
+    {
+        "symbol": "GILD",
+        "name": "Gilead Sciences",
+        "tags": [
+            "Pharma & Biotech"
+        ]
+    },
+    {
+        "symbol": "AMGN",
+        "name": "Amgen",
+        "tags": [
+            "Pharma & Biotech"
+        ]
+    },
+    {
+        "symbol": "BIIB",
+        "name": "Biogen",
+        "tags": [
+            "Pharma & Biotech"
+        ]
+    },
+    {
+        "symbol": "ISRG",
+        "name": "Intuitive Surgical",
+        "tags": [
+            "Pharma & Biotech"
+        ]
+    },
+    {
+        "symbol": "PFE",
+        "name": "Pfizer",
+        "tags": [
+            "Pharma & Biotech"
+        ]
+    },
+    {
+        "symbol": "BMY",
+        "name": "Bristol-Myers Squibb",
+        "tags": [
+            "Pharma & Biotech"
+        ]
+    },
+    {
+        "symbol": "AZN",
+        "name": "AstraZeneca",
+        "tags": [
+            "Pharma & Biotech"
+        ]
+    },
+    {
+        "symbol": "NVO",
+        "name": "Novo Nordisk",
+        "tags": [
+            "Pharma & Biotech"
+        ]
+    },
+    {
+        "symbol": "ZTS",
+        "name": "Zoetis",
+        "tags": [
+            "Pharma & Biotech"
+        ]
+    },
+    {
+        "symbol": "IDXX",
+        "name": "IDEXX Laboratories",
+        "tags": [
+            "Pharma & Biotech"
+        ]
+    },
+    {
+        "symbol": "GS",
+        "name": "Goldman Sachs",
+        "tags": [
+            "Finanzen & Banken"
+        ]
+    },
+    {
+        "symbol": "MS",
+        "name": "Morgan Stanley",
+        "tags": [
+            "Finanzen & Banken"
+        ]
+    },
+    {
+        "symbol": "BAC",
+        "name": "Bank of America",
+        "tags": [
+            "Finanzen & Banken"
+        ]
+    },
+    {
+        "symbol": "C",
+        "name": "Citigroup",
+        "tags": [
+            "Finanzen & Banken"
+        ]
+    },
+    {
+        "symbol": "WFC",
+        "name": "Wells Fargo",
+        "tags": [
+            "Finanzen & Banken"
+        ]
+    },
+    {
+        "symbol": "AXP",
+        "name": "American Express",
+        "tags": [
+            "Finanzen & Banken"
+        ]
+    },
+    {
+        "symbol": "BLK",
+        "name": "BlackRock",
+        "tags": [
+            "Finanzen & Banken"
+        ]
+    },
+    {
+        "symbol": "BX",
+        "name": "Blackstone",
+        "tags": [
+            "Finanzen & Banken"
+        ]
+    },
+    {
+        "symbol": "CME",
+        "name": "CME Group",
+        "tags": [
+            "Finanzen & Banken"
+        ]
+    },
+    {
+        "symbol": "SPGI",
+        "name": "S&P Global",
+        "tags": [
+            "Finanzen & Banken"
+        ]
+    },
+    {
+        "symbol": "MCO",
+        "name": "Moody's",
+        "tags": [
+            "Finanzen & Banken"
+        ]
+    },
+    {
+        "symbol": "ICE",
+        "name": "Intercontinental Exchange",
+        "tags": [
+            "Finanzen & Banken"
+        ]
+    },
+    {
+        "symbol": "NEE",
+        "name": "NextEra Energy",
+        "tags": [
+            "Erneuerbare Energien & Utilities"
+        ]
+    },
+    {
+        "symbol": "ENPH",
+        "name": "Enphase Energy",
+        "tags": [
+            "Erneuerbare Energien & Utilities"
+        ]
+    },
+    {
+        "symbol": "FSLR",
+        "name": "First Solar",
+        "tags": [
+            "Erneuerbare Energien & Utilities"
+        ]
+    },
+    {
+        "symbol": "SEDG",
+        "name": "SolarEdge",
+        "tags": [
+            "Erneuerbare Energien & Utilities"
+        ]
+    },
+    {
+        "symbol": "VWDRY",
+        "name": "Vestas Wind Systems",
+        "tags": [
+            "Erneuerbare Energien & Utilities"
+        ]
+    },
+    {
+        "symbol": "DUK",
+        "name": "Duke Energy",
+        "tags": [
+            "Erneuerbare Energien & Utilities"
+        ]
+    },
+    {
+        "symbol": "SO",
+        "name": "Southern Company",
+        "tags": [
+            "Erneuerbare Energien & Utilities"
+        ]
+    },
+    {
+        "symbol": "D",
+        "name": "Dominion Energy",
+        "tags": [
+            "Erneuerbare Energien & Utilities"
+        ]
+    },
+    {
+        "symbol": "SRE",
+        "name": "Sempra",
+        "tags": [
+            "Erneuerbare Energien & Utilities"
+        ]
+    },
+    {
+        "symbol": "EXC",
+        "name": "Exelon",
+        "tags": [
+            "Erneuerbare Energien & Utilities"
+        ]
+    },
+    {
+        "symbol": "COP",
+        "name": "ConocoPhillips",
+        "tags": [
+            "\u00d6l, Gas & Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "SLB",
+        "name": "Schlumberger",
+        "tags": [
+            "\u00d6l, Gas & Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "HAL",
+        "name": "Halliburton",
+        "tags": [
+            "\u00d6l, Gas & Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "BKR",
+        "name": "Baker Hughes",
+        "tags": [
+            "\u00d6l, Gas & Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "EOG",
+        "name": "EOG Resources",
+        "tags": [
+            "\u00d6l, Gas & Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "PXD",
+        "name": "Pioneer Natural Resources",
+        "tags": [
+            "\u00d6l, Gas & Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "FCX",
+        "name": "Freeport-McMoRan",
+        "tags": [
+            "\u00d6l, Gas & Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "NEM",
+        "name": "Newmont",
+        "tags": [
+            "\u00d6l, Gas & Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "GOLD",
+        "name": "Barrick Gold",
+        "tags": [
+            "\u00d6l, Gas & Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "SCCO",
+        "name": "Southern Copper",
+        "tags": [
+            "\u00d6l, Gas & Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "ALB",
+        "name": "Albemarle",
+        "tags": [
+            "\u00d6l, Gas & Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "SQM",
+        "name": "Sociedad Quimica",
+        "tags": [
+            "\u00d6l, Gas & Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "TGT",
+        "name": "Target",
+        "tags": [
+            "Konsum, Handel & E-Commerce"
+        ]
+    },
+    {
+        "symbol": "DG",
+        "name": "Dollar General",
+        "tags": [
+            "Konsum, Handel & E-Commerce"
+        ]
+    },
+    {
+        "symbol": "DLTR",
+        "name": "Dollar Tree",
+        "tags": [
+            "Konsum, Handel & E-Commerce"
+        ]
+    },
+    {
+        "symbol": "NKE",
+        "name": "Nike",
+        "tags": [
+            "Konsum, Handel & E-Commerce"
+        ]
+    },
+    {
+        "symbol": "LULU",
+        "name": "Lululemon",
+        "tags": [
+            "Konsum, Handel & E-Commerce"
+        ]
+    },
+    {
+        "symbol": "SBUX",
+        "name": "Starbucks",
+        "tags": [
+            "Konsum, Handel & E-Commerce"
+        ]
+    },
+    {
+        "symbol": "CMG",
+        "name": "Chipotle",
+        "tags": [
+            "Konsum, Handel & E-Commerce"
+        ]
+    },
+    {
+        "symbol": "MELI",
+        "name": "MercadoLibre",
+        "tags": [
+            "Konsum, Handel & E-Commerce"
+        ]
+    },
+    {
+        "symbol": "SE",
+        "name": "Sea Limited",
+        "tags": [
+            "Konsum, Handel & E-Commerce"
+        ]
+    },
+    {
+        "symbol": "SHOP",
+        "name": "Shopify",
+        "tags": [
+            "Konsum, Handel & E-Commerce"
+        ]
+    },
+    {
+        "symbol": "EBAY",
+        "name": "eBay",
+        "tags": [
+            "Konsum, Handel & E-Commerce"
+        ]
+    },
+    {
+        "symbol": "ETSY",
+        "name": "Etsy",
+        "tags": [
+            "Konsum, Handel & E-Commerce"
+        ]
+    },
+    {
+        "symbol": "BKNG",
+        "name": "Booking Holdings",
+        "tags": [
+            "Reise, Transport & Freizeit"
+        ]
+    },
+    {
+        "symbol": "EXPE",
+        "name": "Expedia",
+        "tags": [
+            "Reise, Transport & Freizeit"
+        ]
+    },
+    {
+        "symbol": "ABNB",
+        "name": "Airbnb",
+        "tags": [
+            "Reise, Transport & Freizeit"
+        ]
+    },
+    {
+        "symbol": "MAR",
+        "name": "Marriott",
+        "tags": [
+            "Reise, Transport & Freizeit"
+        ]
+    },
+    {
+        "symbol": "HLT",
+        "name": "Hilton",
+        "tags": [
+            "Reise, Transport & Freizeit"
+        ]
+    },
+    {
+        "symbol": "DAL",
+        "name": "Delta Air Lines",
+        "tags": [
+            "Reise, Transport & Freizeit"
+        ]
+    },
+    {
+        "symbol": "UAL",
+        "name": "United Airlines",
+        "tags": [
+            "Reise, Transport & Freizeit"
+        ]
+    },
+    {
+        "symbol": "UPS",
+        "name": "United Parcel Service",
+        "tags": [
+            "Reise, Transport & Freizeit"
+        ]
+    },
+    {
+        "symbol": "FDX",
+        "name": "FedEx",
+        "tags": [
+            "Reise, Transport & Freizeit"
+        ]
+    },
+    {
+        "symbol": "UNP",
+        "name": "Union Pacific",
+        "tags": [
+            "Reise, Transport & Freizeit"
+        ]
+    },
+    {
+        "symbol": "CSX",
+        "name": "CSX Corp",
+        "tags": [
+            "Reise, Transport & Freizeit"
+        ]
+    },
+    {
+        "symbol": "DIS",
+        "name": "Walt Disney",
+        "tags": [
+            "Reise, Transport & Freizeit"
+        ]
+    },
+    {
+        "symbol": "BABA",
+        "name": "Alibaba",
+        "tags": [
+            "China Tech & EV"
+        ]
+    },
+    {
+        "symbol": "TCEHY",
+        "name": "Tencent",
+        "tags": [
+            "China Tech & EV"
+        ]
+    },
+    {
+        "symbol": "JD",
+        "name": "JD.com",
+        "tags": [
+            "China Tech & EV"
+        ]
+    },
+    {
+        "symbol": "PDD",
+        "name": "Pinduoduo",
+        "tags": [
+            "China Tech & EV"
+        ]
+    },
+    {
+        "symbol": "BIDU",
+        "name": "Baidu",
+        "tags": [
+            "China Tech & EV"
+        ]
+    },
+    {
+        "symbol": "NTES",
+        "name": "NetEase",
+        "tags": [
+            "China Tech & EV"
+        ]
+    },
+    {
+        "symbol": "BYDDY",
+        "name": "BYD Co",
+        "tags": [
+            "China Tech & EV"
+        ]
+    },
+    {
+        "symbol": "LI",
+        "name": "Li Auto",
+        "tags": [
+            "China Tech & EV"
+        ]
+    },
+    {
+        "symbol": "NIO",
+        "name": "NIO Inc.",
+        "tags": [
+            "China Tech & EV"
+        ]
+    },
+    {
+        "symbol": "8XP.F",
+        "name": "XPeng Inc.",
+        "tags": [
+            "China Tech & EV"
+        ]
+    },
+    {
+        "symbol": "PLUG",
+        "name": "Plug Power",
+        "tags": [
+            "High Risk / Exoten"
+        ]
+    },
+    {
+        "symbol": "SPCE",
+        "name": "Virgin Galactic",
+        "tags": [
+            "High Risk / Exoten"
+        ]
+    },
+    {
+        "symbol": "RIVN",
+        "name": "Rivian Automotive",
+        "tags": [
+            "High Risk / Exoten"
+        ]
+    },
+    {
+        "symbol": "LCID",
+        "name": "Lucid Group",
+        "tags": [
+            "High Risk / Exoten"
+        ]
+    },
+    {
+        "symbol": "NKLA",
+        "name": "Nikola",
+        "tags": [
+            "High Risk / Exoten"
+        ]
+    },
+    {
+        "symbol": "MSTR",
+        "name": "MicroStrategy",
+        "tags": [
+            "High Risk / Exoten"
+        ]
+    },
+    {
+        "symbol": "COIN",
+        "name": "Coinbase",
+        "tags": [
+            "High Risk / Exoten"
+        ]
+    },
+    {
+        "symbol": "MARA",
+        "name": "Marathon Digital",
+        "tags": [
+            "High Risk / Exoten"
+        ]
+    },
+    {
+        "symbol": "RIOT",
+        "name": "Riot Platforms",
+        "tags": [
+            "High Risk / Exoten"
+        ]
+    },
+    {
+        "symbol": "CVNA",
+        "name": "Carvana",
+        "tags": [
+            "High Risk / Exoten"
+        ]
+    }
+]

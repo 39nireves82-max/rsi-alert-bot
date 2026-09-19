@@ -1,0 +1,92 @@
+[
+    {
+        "symbol": "NQ=F",
+        "name": "Nasdaq 100",
+        "tags": [
+            "Futures",
+            "CME",
+            "US-Indizes",
+            "Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "ES=F",
+        "name": "S&P 500",
+        "tags": [
+            "Futures",
+            "CME",
+            "US-Indizes",
+            "Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "YM=F",
+        "name": "Dow Jones",
+        "tags": [
+            "Futures",
+            "CME",
+            "US-Indizes",
+            "Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "RTY=F",
+        "name": "Russell 2000",
+        "tags": [
+            "Futures",
+            "CME",
+            "US-Indizes",
+            "Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "GC=F",
+        "name": "Gold",
+        "tags": [
+            "Futures",
+            "CME",
+            "US-Indizes",
+            "Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "SI=F",
+        "name": "Silber",
+        "tags": [
+            "Futures",
+            "CME",
+            "US-Indizes",
+            "Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "CL=F",
+        "name": "Crude Oil",
+        "tags": [
+            "Futures",
+            "CME",
+            "US-Indizes",
+            "Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "NG=F",
+        "name": "Erdgas",
+        "tags": [
+            "Futures",
+            "CME",
+            "US-Indizes",
+            "Rohstoffe"
+        ]
+    },
+    {
+        "symbol": "HG=F",
+        "name": "Kupfer",
+        "tags": [
+            "Futures",
+            "CME",
+            "US-Indizes",
+            "Rohstoffe"
+        ]
+    }
+]
