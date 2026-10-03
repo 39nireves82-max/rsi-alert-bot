@@ -504,7 +504,206 @@ def run_rsi_screener():
 
     if alerts:
         send_telegram_message("🚨 *RSI ALARM BOT STATUS UPDATE* 🚨\n\n" + "\n---\n".join(alerts))
+# 2. VERBINDLICHES ASSET-DNA MAPPING
+ASSET_DNA = {
+    "NQ=F": {"tf": "1h", "session": (15, 30, 21, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop"},
+    "EURUSD=X": {"tf": "1h", "session": (13, 0, 18, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex"},
+    "GBPUSD=X": {"tf": "4h", "session": (8, 0, 22, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex"},
+    "USDJPY=X": {"tf": "4h", "session": (8, 0, 22, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex"},
+    "CL=F": {"tf": "4h", "session": (14, 30, 20, 30), "min_score": 65, "allowed_setups": ["A", "B"], "desk": "Privat Rohstoffe"},
+    "GC=F": {"tf": "1h", "session": (9, 0, 18, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Privat Rohstoffe"},
+    "DEFAULT_EQUITY": {"tf": "4h", "session": (15, 30, 22, 0), "min_score": 70, "allowed_setups": ["B"], "desk": "Privat Swing"}
+}
 
+def run_watchlist_entry_screener():
+    if not os.path.exists(USERS_DIR):
+        return
+        
+    try:
+        berlin_tz = zoneinfo.ZoneInfo("Europe/Berlin")
+        now = datetime.datetime.now(berlin_tz)
+    except Exception:
+        now = datetime.datetime.now()
+        
+    is_weekend = now.weekday() >= 5
+    
+    # Schritt 1: Mandanten & Ticker einsammeln
+    user_tickers = {}
+    for user_folder in os.listdir(USERS_DIR):
+        user_dir = os.path.join(USERS_DIR, user_folder)
+        if not os.path.isdir(user_dir): continue
+        
+        profile_file = os.path.join(user_dir, "user_profile.json")
+        config_file = os.path.join(user_dir, "ticker_config.json")
+        
+        chat_id = ""
+        if os.path.exists(profile_file):
+            with open(profile_file, "r", encoding="utf-8") as pf:
+                chat_id = json.load(pf).get("telegram_chat_id", "")
+        if not chat_id: continue
+        
+        if os.path.exists(config_file):
+            with open(config_file, "r", encoding="utf-8") as f:
+                try:
+                    cfg = json.load(f)
+                    w_t = [t["symbol"] for t in cfg.get("screener_tickers", [])]
+                    p_t = [t["symbol"] for t in cfg.get("prop_watchlist", [])]
+                    for t in set(w_t + p_t):
+                        if t not in user_tickers: user_tickers[t] = []
+                        if chat_id not in user_tickers[t]: user_tickers[t].append(chat_id)
+                except: pass
+                
+    if not user_tickers: return
+
+    global_state_file = os.path.join(BASE_DIR, "alert_state.json")
+    alert_state = {}
+    if os.path.exists(global_state_file):
+        with open(global_state_file, "r", encoding="utf-8") as f:
+            try: alert_state = json.load(f)
+            except: pass
+            
+    state_modified = False
+    
+    # Schritt 2 & 3: Session-Guard & Rate-Limit-Schutz
+    for ticker, chat_ids in user_tickers.items():
+        sym_u = ticker.upper()
+        is_crypto = any(ext in sym_u for ext in ["-USD", "-EUR", "-GBP", "BTC", "ETH", "SOL"])
+        if is_weekend and not is_crypto:
+            continue
+            
+        dna = ASSET_DNA.get(sym_u, ASSET_DNA["DEFAULT_EQUITY"])
+        tf = dna["tf"]
+        sess_start_h, sess_start_m, sess_end_h, sess_end_m = dna["session"]
+        min_score = dna["min_score"]
+        allowed_setups = dna["allowed_setups"]
+        desk = dna["desk"]
+        
+        curr_minutes = now.hour * 60 + now.minute
+        start_minutes = sess_start_h * 60 + sess_start_m
+        end_minutes = sess_end_h * 60 + sess_end_m
+        
+        if not is_crypto and not (start_minutes <= curr_minutes <= end_minutes):
+            continue
+            
+        if tf == "1h" and now.minute > 4: continue
+        if tf == "4h" and (now.hour % 4 != 0 or now.minute > 4): continue
+        
+        # Schritt 4: Kurs- & Indikatoren-Berechnung
+        try:
+            df = yf.download([ticker], period="1y", interval="1h", progress=False)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            if df.empty or "Close" not in df.columns: continue
+            
+            if tf == "4h":
+                agg_d = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'}
+                if 'Volume' in df.columns: agg_d['Volume'] = 'sum'
+                df = df.resample('4h').agg(agg_d).dropna(subset=['Close'])
+                
+            if len(df) < 20: continue
+            
+            close = df["Close"]
+            ema20 = close.ewm(span=20, adjust=False).mean()
+            ema200 = close.ewm(span=200, adjust=False).mean()
+            
+            delta = close.diff()
+            gain = delta.clip(lower=0)
+            loss = -delta.clip(upper=0)
+            avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+            avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+            rs = avg_gain / avg_loss
+            rsi = 100 - (100 / (1 + rs))
+            
+            high_low = df["High"] - df["Low"]
+            high_close = (df["High"] - close.shift()).abs()
+            low_close = (df["Low"] - close.shift()).abs()
+            tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            atr = tr.rolling(window=14).mean()
+            kc_lower = ema20 - (2 * atr)
+            
+            c_p = float(close.iloc[-1])
+            e20 = float(ema20.iloc[-1])
+            e200 = float(ema200.iloc[-1])
+            r_val = float(rsi.iloc[-1])
+            kc_low_val = float(kc_lower.iloc[-1])
+            
+            # Schritt 6: Anti-Spam & Candle-Lock
+            candle_ts = str(df.index[-1])
+            state_key = f"entry_{sym_u}_{tf}_{candle_ts}"
+            if alert_state.get(state_key): continue
+            
+            setup_type = "A"
+            is_short = False
+            
+            if c_p > e200 and 38 <= r_val <= 52 and abs(c_p - e20)/e20 <= 0.015:
+                setup_type = "B"
+            elif c_p < e200 and 48 <= r_val <= 62 and abs(c_p - e20)/e20 <= 0.015:
+                setup_type = "B"
+                is_short = True
+                
+            # Schritt 5: Poka-Yoke Filterung
+            if setup_type not in allowed_setups: continue
+            
+            score = 0
+            if setup_type == "B":
+                score = 85 if (c_p > e200 and not is_short) or (c_p < e200 and is_short) else 40
+            else:
+                if r_val <= 30: 
+                    score += 40
+                elif r_val >= 70:
+                    score += 40
+                    is_short = True
+                if not is_short and c_p <= kc_low_val: score += 30
+                if not is_short and c_p > e200: score += 30
+                if is_short and c_p < e200: score += 30
+                
+            if score < min_score: continue
+            
+            # Slippage-Limit & Telegram-Versand
+            if not is_short:
+                sl = float(df["Low"].tail(24).min()) if "Low" in df.columns else c_p * 0.98
+                if sl >= c_p: sl = c_p * 0.98
+                tp = e200 if (setup_type == "A" and c_p < e200 and e200 < c_p * 1.15) else (float(df["High"].tail(24).max()) if "High" in df.columns else c_p * 1.02)
+                risk = abs(c_p - sl)
+                if risk == 0: continue
+                max_slip_price = c_p + (tp - c_p) * (1 - 1.25 / 2.25)
+            else:
+                sl = float(df["High"].tail(24).max()) if "High" in df.columns else c_p * 1.02
+                if sl <= c_p: sl = c_p * 1.02
+                tp = e200 if (setup_type == "A" and c_p > e200 and e200 > c_p * 0.85) else (float(df["Low"].tail(24).min()) if "Low" in df.columns else c_p * 0.98)
+                risk = abs(sl - c_p)
+                if risk == 0: continue
+                max_slip_price = c_p - (c_p - tp) * (1 - 1.25 / 2.25)
+            
+            setup_name = f"Setup {setup_type} {'Trend-Pullback' if setup_type == 'B' else 'Reversal'}"
+            
+            msg = f"""🚨 <b>INVARIX ENTRY ALERT — {sym_u}</b>
+
+<b>Konto-Fokus:</b> {desk}
+<b>Setup:</b> {setup_name}
+<b>Signal-Score:</b> {score} / 100
+<b>Timeframe:</b> {tf}
+
+<b>Trigger-Kurs:</b> {c_p:.4f}
+🎯 <b>Max. Limit (CRV ≥ 1.25):</b> {max_slip_price:.4f}
+🛑 <b>Stop-Loss:</b> {sl:.4f}
+🎯 <b>Take-Profit (+1.0 R):</b> {tp:.4f}
+
+<b>Handelszeit:</b> Session aktiv
+⚠️ <i>Rules Never Bend — Prüfe Spread vor Orderaufgabe.</i>"""
+
+            for cid in chat_ids:
+                send_telegram_message(msg, cid)
+                
+            alert_state[state_key] = True
+            state_modified = True
+            
+        except Exception as e:
+            print(f"Fehler bei Screener {sym_u}: {e}")
+            
+    if state_modified:
+        with open(global_state_file, "w", encoding="utf-8") as f:
+            json.dump(alert_state, f, indent=4)
 
 # Hauptfunktion: Kontinuierlicher Trade-Copilot
 def main():
@@ -528,6 +727,33 @@ def main():
                         if os.path.exists(profile_file):
                             with open(profile_file, "r", encoding="utf-8") as pf:
                                 chat_id = json.load(pf).get("telegram_chat_id", "")
+                        journal_file = os.path.join(user_dir, "trade_journal.csv")
+                        open_trades = []
+                        if os.path.exists(journal_file):
+                            try:
+                                df_j = pd.read_csv(journal_file)
+                                open_trades = df_j[df_j['status'] == 'OPEN'].index.tolist()
+                            except:
+                                pass
+                                
+                        config_file = os.path.join(user_dir, "ticker_config.json")
+                        wl_tickers = []
+                        if os.path.exists(config_file):
+                            try:
+                                with open(config_file, "r", encoding="utf-8") as f:
+                                    cfg = json.load(f)
+                                    w_t = [t["symbol"] for t in cfg.get("screener_tickers", [])]
+                                    p_t = [t["symbol"] for t in cfg.get("prop_watchlist", [])]
+                                    wl_tickers = list(set(w_t + p_t))
+                            except:
+                                pass
+                                
+                        timestamp = datetime.datetime.now().strftime('%H:%M:%S')
+                        username = user_folder
+                        if username == "admin":
+                            print(f"[{timestamp}] Mandant '{username}': {len(open_trades)} Trades | Watchlist: {wl_tickers}")
+                        else:
+                            print(f"[{timestamp}] Mandant '{username}': {len(open_trades)} Trades | Watchlist: {len(wl_tickers)} Ticker aktiv")
                                 
                         copilot_alerts, alert_state, alert_state_file = check_open_trades(user_dir)
                         if copilot_alerts and chat_id:
@@ -546,6 +772,9 @@ def main():
                                     json.dump(alert_state, f, indent=4)
                                 
                 print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {users_checked} Mandanten geprüft. {alerts_sent} Alarme gesendet.")
+                
+                # Autonomer Watchlist-Screener aufrufen
+                run_watchlist_entry_screener()
                     
             time.sleep(POLLING_INTERVAL)
             
