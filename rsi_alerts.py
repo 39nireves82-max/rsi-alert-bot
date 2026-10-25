@@ -96,6 +96,16 @@ PENDING_SIGNALS_DIR = _resolve_dir(
     ],
     create_if_missing=True,
 )
+PROCESSING_SIGNALS_DIR = _resolve_dir(
+    "INVARIX_PROCESSING_DIR",
+    [
+        os.path.join(BASE_DIR, "signals", "02_processing"),
+        "/app/signals/02_processing",
+        "/data/signals/02_processing",
+        os.path.join(PARENT_DIR, "Trading Dashboard", "signals", "02_processing"),
+    ],
+    create_if_missing=True,
+)
 
 
 def get_berlin_now() -> datetime.datetime:
@@ -724,6 +734,10 @@ def check_open_trades(user_dir: str):
             except ValueError:
                 continue
 
+        fee_offset = (est_fees / (position_size * pt_val * fx)) if (position_size * pt_val * fx) > 0 else 0.0
+        net_be = round_to_tick(entry_price + fee_offset if is_long else entry_price - fee_offset, sym)
+        target_new_sl = None
+
         # a) Netto-Break-Even & Scale-Out (+1.0 R bzw. +1.5 R bei Krypto)
         is_crypto = any(ext in sym_upper for ext in ["-USD", "-EUR", "-GBP", "-USDT", "-CHF", "BTC", "ETH", "SOL", "NEAR"])
         be_key = f"{t_id}_be"
@@ -732,59 +746,61 @@ def check_open_trades(user_dir: str):
         else:
             be_threshold = 1.5 if is_crypto else 1.0
 
-        if current_r >= be_threshold and not alert_state.get(be_key):
-            scale_pct = 50 if exit_profile in ["prop_guard", "defensive_swing", "apex_commodity_scale", "commodity_scale"] or is_crypto or exit_mode == "DEFENSIVE_EMERGENCY" else 30
-            if exit_mode == "DEFENSIVE_EMERGENCY":
-                alerts.append((
-                    be_key,
-                    f"🚨 <b>[DEFENSIVE-EMERGENCY] SLIPPAGE-SCHUTZ & FRÜHES NET-BE: {html.escape(sym)} ({direction})</b>\n"
-                    f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht (Notfall-Schwelle: +0.75 R)!\n"
-                    f"• Aktion: <b>50% Teilverkauf</b> & Stop-Loss sofort auf <b>Netto-Break-Even</b> ziehen (Schutz wegen schlechtem Einstiegs-CRV)!"
-                ))
-            elif exit_mode == "TARGET_LOCKED" and not is_crypto:
-                alerts.append((
-                    be_key,
-                    f"⚡ <b>[TARGET-LOCKED] APEX TIGHTENING: {html.escape(sym)} ({direction})</b>\n"
-                    f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R\n"
-                    f"• Aktion: <b>Keine Teilschließung</b>, SL zieht aggressiv auf 80% des Buchgewinns nach, um Trailing-Drawdown zu schützen!"
-                ))
-            elif is_crypto:
-                alerts.append((
-                    be_key,
-                    f"🪙 <b>KRYPTO SCALE-OUT & NET-BE: {html.escape(sym)} ({direction})</b>\n"
-                    f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
-                    f"• Aktion: <b>{scale_pct}% Teilverkauf</b> empfohlen.\n"
-                    f"• Info: SL jetzt auf Netto-Break-Even ziehen & 3.5x ATR Trail starten!"
-                ))
-            elif exit_mode == "PROP_DEFENSIVE":
-                alerts.append((
-                    be_key,
-                    f"🛡️ <b>[PROP-DEFENSIVE] SCALE-OUT 50% & NET-BE: {html.escape(sym)} ({direction})</b>\n"
-                    f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
-                    f"• Aktion: <b>50% Teilverkauf</b> empfohlen.\n"
-                    f"• Info: Stop-Loss jetzt auf Netto-Break-Even nachziehen."
-                ))
-            else:  # ALPHA_CASHFLOW & HOME_RUN_TREND
-                if exit_mode == "HOME_RUN_TREND":
+        if current_r >= be_threshold:
+            target_new_sl = net_be
+            if not alert_state.get(be_key):
+                scale_pct = 50 if exit_profile in ["prop_guard", "defensive_swing", "apex_commodity_scale", "commodity_scale"] or is_crypto or exit_mode == "DEFENSIVE_EMERGENCY" else 30
+                if exit_mode == "DEFENSIVE_EMERGENCY":
                     alerts.append((
                         be_key,
-                        f"🚀 <b>[HOME-RUN-TREND] NET-BE ERREICHT: {html.escape(sym)} ({direction})</b>\n"
-                        f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
-                        f"• Aktion: <b>Kein Teilverkauf</b> (Home-Run Modus).\n"
-                        f"• Info: Stop-Loss jetzt auf Netto-Break-Even nachziehen."
+                        f"🚨 <b>[DEFENSIVE-EMERGENCY] SLIPPAGE-SCHUTZ & FRÜHES NET-BE: {html.escape(sym)} ({direction})</b>\n"
+                        f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht (Notfall-Schwelle: +0.75 R)!\n"
+                        f"• Aktion: <b>50% Teilverkauf</b> & Stop-Loss sofort auf <b>Netto-Break-Even</b> ziehen (Schutz wegen schlechtem Einstiegs-CRV)!"
                     ))
-                else:
+                elif exit_mode == "TARGET_LOCKED" and not is_crypto:
                     alerts.append((
                         be_key,
-                        f"⚖️ <b>[ALPHA-CASHFLOW] SCALE-OUT 30% & NET-BE: {html.escape(sym)} ({direction})</b>\n"
+                        f"⚡ <b>[TARGET-LOCKED] APEX TIGHTENING: {html.escape(sym)} ({direction})</b>\n"
+                        f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R\n"
+                        f"• Aktion: <b>Keine Teilschließung</b>, SL zieht aggressiv auf 80% des Buchgewinns nach, um Trailing-Drawdown zu schützen!"
+                    ))
+                elif is_crypto:
+                    alerts.append((
+                        be_key,
+                        f"🪙 <b>KRYPTO SCALE-OUT & NET-BE: {html.escape(sym)} ({direction})</b>\n"
                         f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
-                        f"• Aktion: <b>30% Teilverkauf</b> empfohlen.\n"
+                        f"• Aktion: <b>{scale_pct}% Teilverkauf</b> empfohlen.\n"
+                        f"• Info: SL jetzt auf Netto-Break-Even ziehen & 3.5x ATR Trail starten!"
+                    ))
+                elif exit_mode == "PROP_DEFENSIVE":
+                    alerts.append((
+                        be_key,
+                        f"🛡️ <b>[PROP-DEFENSIVE] SCALE-OUT 50% & NET-BE: {html.escape(sym)} ({direction})</b>\n"
+                        f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
+                        f"• Aktion: <b>50% Teilverkauf</b> empfohlen.\n"
                         f"• Info: Stop-Loss jetzt auf Netto-Break-Even nachziehen."
                     ))
+                else:  # ALPHA_CASHFLOW & HOME_RUN_TREND
+                    if exit_mode == "HOME_RUN_TREND":
+                        alerts.append((
+                            be_key,
+                            f"🚀 <b>[HOME-RUN-TREND] NET-BE ERREICHT: {html.escape(sym)} ({direction})</b>\n"
+                            f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
+                            f"• Aktion: <b>Kein Teilverkauf</b> (Home-Run Modus).\n"
+                            f"• Info: Stop-Loss jetzt auf Netto-Break-Even nachziehen."
+                        ))
+                    else:
+                        alerts.append((
+                            be_key,
+                            f"⚖️ <b>[ALPHA-CASHFLOW] SCALE-OUT 30% & NET-BE: {html.escape(sym)} ({direction})</b>\n"
+                            f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
+                            f"• Aktion: <b>30% Teilverkauf</b> empfohlen.\n"
+                            f"• Info: Stop-Loss jetzt auf Netto-Break-Even nachziehen."
+                        ))
 
         # b) Trailing-Stop Nachzug (+1.5 R)
         trail_key = f"{t_id}_trail"
-        if current_r >= 1.5 and not alert_state.get(trail_key):
+        if current_r >= 1.5:
             trail_mult = 2.0 if exit_mode == "PROP_DEFENSIVE" else 2.5
             if exit_mode == "DEFENSIVE_EMERGENCY":
                 trail_mult = 1.5
@@ -802,19 +818,22 @@ def check_open_trades(user_dir: str):
                 peak_protection = entry_price + (profit_per_share * 0.80) * dir_m
                 new_sl = max(new_sl, peak_protection) if is_long else min(new_sl, peak_protection)
 
-            # Harter Monotonie-Schutz (mindestens Break-Even, nie schlechter als Initial-SL, nie über aktuellem Kurs)
+            # Harter Monotonie-Schutz (mindestens Netto-Break-Even, nie schlechter als Initial-SL, nie über aktuellem Kurs)
             if is_long:
                 effective_old_sl = active_sl if active_sl > 0 else entry_price
-                new_sl = min(max(new_sl, entry_price, effective_old_sl), curr_price)
+                new_sl = min(max(new_sl, net_be, effective_old_sl), curr_price)
                 new_sl = round_to_tick(new_sl, sym)
                 is_improved = new_sl > active_sl
             else:
                 effective_old_sl = active_sl if active_sl > 0 else entry_price
-                new_sl = max(min(new_sl, entry_price, effective_old_sl), curr_price)
+                new_sl = max(min(new_sl, net_be, effective_old_sl), curr_price)
                 new_sl = round_to_tick(new_sl, sym)
                 is_improved = (active_sl <= 0) or (new_sl < active_sl)
 
-            if is_improved:
+            if target_new_sl is None or (is_long and new_sl > target_new_sl) or (not is_long and new_sl < target_new_sl):
+                target_new_sl = new_sl
+
+            if is_improved and not alert_state.get(trail_key):
                 if exit_mode == "HOME_RUN_TREND":
                     alerts.append((
                         trail_key,
@@ -830,6 +849,55 @@ def check_open_trades(user_dir: str):
                         f"• Gewinn: +{current_r:.2f} R erreicht!\n"
                         f"• Empfohlener Trail-SL: <b>{format_price(new_sl, sym)}</b> (Faktor: {trail_mult}x ATR)"
                     ))
+
+        # --- AUTONOMES SIGNAL-SPOOLING (MODIFY_STOP) ---
+        if target_new_sl is not None:
+            is_improved_spool = (target_new_sl > active_sl) if is_long else ((active_sl <= 0) or (target_new_sl < active_sl))
+            if is_improved_spool:
+                username = os.path.basename(os.path.normpath(user_dir))
+                matched_acc = None
+                matched_acc_id = ""
+                for a_id, a_dict in config.get("lab_accounts", {}).items():
+                    if a_dict.get("name") == acc_name_raw:
+                        matched_acc = a_dict
+                        matched_acc_id = a_id
+                        break
+                
+                if matched_acc and matched_acc.get("execution_mode") == "LIVE_AUTO":
+                    acc_type = resolve_account_type(matched_acc_id, matched_acc)
+                    if acc_type in ["apex", "ftmo"] and not is_crypto:
+                        spool_skip = False
+                        for s_dir in [PENDING_SIGNALS_DIR, PROCESSING_SIGNALS_DIR]:
+                            if os.path.exists(s_dir):
+                                for f_name in os.listdir(s_dir):
+                                    if t_id in f_name:
+                                        spool_skip = True
+                                        break
+                            if spool_skip:
+                                break
+                        
+                        if not spool_skip:
+                            broker_acc = matched_acc.get("broker_account", "AUTO_ROUTED")
+                            ts_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                            sig_payload = {
+                                "action": "MODIFY_STOP",
+                                "symbol": sym,
+                                "instrument": sym,
+                                "stop_price": target_new_sl,
+                                "new_sl": target_new_sl,
+                                "trade_id": t_id,
+                                "account_id": broker_acc,
+                                "lab_account_id": matched_acc_id,
+                                "account_name": acc_name_raw,
+                                "account_type": acc_type,
+                                "direction": direction,
+                                "timestamp": ts_iso,
+                                "username": username
+                            }
+                            sig_filename = f"sig_mod_{int(time.time())}_{username}_{t_id}.json"
+                            sig_file = os.path.join(PENDING_SIGNALS_DIR, sig_filename)
+                            if atomic_write_json(sig_file, sig_payload):
+                                log(f"[{get_berlin_now().strftime('%H:%M:%S')}] ✅ AUTO-MODIFY_STOP gespoolt: {sym} ({acc_name_raw}) -> Neuer SL: {target_new_sl}")
 
         # b2) Stufen-Chandelier (+2.5 R)
         r25_key = f"{t_id}_r25"
@@ -1374,6 +1442,8 @@ def main():
     except KeyboardInterrupt:
         log("\n🛑 Trade-Copilot sauber beendet (Strg+C).")
 def run_tests():
+    global PENDING_SIGNALS_DIR, PROCESSING_SIGNALS_DIR
+    
     log("================================================================================")
     log("🧪 INVARIX SIGNAL-KERN TEST-BATTERIE")
     log("================================================================================")
@@ -1412,7 +1482,6 @@ def run_tests():
     c_syms = ["BTC-USD", "KAS-USD", "ETH-EUR"]
     nc_syms = ["NQ=F", "CL=F", "MSFT", "EURUSD=X"]
     if all(is_crypto_symbol(s) for s in c_syms) and all(not is_crypto_symbol(s) for s in nc_syms):
-        # Simuliere Setup B Block
         if is_crypto_symbol("BTC-USD") and "B" == "B":
             log("[PASS] Krypto-Quarantäne (Setup B für Krypto blockiert)")
         else:
@@ -1429,14 +1498,15 @@ def run_tests():
     else:
         log("[FAIL] RSI-Korridor-Schutzschild durchbrochen")
         all_passed = False
+
     # 6. TEST: KONTO-AUDIT & DIRECTION-GATEKEEPER
     test_acc_6 = {"direction": "long", "min_score": 70, "allowed_setups": ["A", "B"], "account_type": "apex"}
     dna_mock = {"session": (0, 0, 23, 59)}
     now_mock = datetime.datetime.now()
     
-    res_6a, _ = audit_account_for_signal("test", test_acc_6, "NQ=F", True, 85, "A", now_mock, dna_mock)  # short -> fail
-    res_6b, _ = audit_account_for_signal("test", test_acc_6, "NQ=F", False, 65, "A", now_mock, dna_mock) # score < 70 -> fail
-    res_6c, _ = audit_account_for_signal("test", test_acc_6, "NQ=F", False, 75, "A", now_mock, dna_mock) # pass
+    res_6a, _ = audit_account_for_signal("test", test_acc_6, "NQ=F", True, 85, "A", now_mock, dna_mock)
+    res_6b, _ = audit_account_for_signal("test", test_acc_6, "NQ=F", False, 65, "A", now_mock, dna_mock)
+    res_6c, _ = audit_account_for_signal("test", test_acc_6, "NQ=F", False, 75, "A", now_mock, dna_mock)
 
     if not res_6a and not res_6b and res_6c:
         log("[PASS] Konto-Audit Schranken-Check (Richtung & Score)")
@@ -1524,11 +1594,76 @@ def run_tests():
     else:
         log("[FAIL] Journal Exit-Mode Fallback-Schutz")
         all_passed = False
+
+    # 12. TEST: AUTONOME STOP-LOSS NACHFÜHRUNG & SPOOLING
+    import tempfile
+    t12_user_dir = tempfile.mkdtemp(prefix="test12_")
+    t12_pending = os.path.join(t12_user_dir, "signals", "01_pending")
+    t12_processing = os.path.join(t12_user_dir, "signals", "02_processing")
+    os.makedirs(t12_pending, exist_ok=True)
+    os.makedirs(t12_processing, exist_ok=True)
+    
+    old_pending = PENDING_SIGNALS_DIR
+    old_processing = PROCESSING_SIGNALS_DIR
+    PENDING_SIGNALS_DIR = t12_pending
+    PROCESSING_SIGNALS_DIR = t12_processing
+
+    try:
+        t12_cfg = {
+            "lab_accounts": {
+                "acc1": {"name": "Test Acc", "execution_mode": "LIVE_AUTO", "account_type": "apex", "broker_account": "DEMO"}
+            }
+        }
+        with open(os.path.join(t12_user_dir, "ticker_config.json"), "w") as f:
+            json.dump(t12_cfg, f)
+            
+        t12_journal = os.path.join(t12_user_dir, "trade_journal.csv")
+        df12 = pd.DataFrame([{
+            "id": "T12_MOCK", "status": "OPEN", "symbol": "MNQ", "account_name": "Test Acc",
+            "direction": "Long", "entry_price": 100.0, "sl_price": 90.0, "current_sl": 0.0, 
+            "position_size": 1.0, "point_value": 2.0, "fx_rate": 1.0, "est_fees_eur": 5.0, 
+            "initial_sl_price": 90.0
+        }])
+        df12.to_csv(t12_journal, index=False)
+        
+        old_get_price = globals().get('get_current_price')
+        globals()['get_current_price'] = lambda sym, ttl=15: 120.0
+        
+        check_open_trades(t12_user_dir)
+        
+        files = os.listdir(t12_pending)
+        has_file = len(files) == 1
+        
+        t12_correct_be = False
+        if has_file:
+            with open(os.path.join(t12_pending, files[0]), "r") as f:
+                sig = json.load(f)
+            t12_correct_be = sig["new_sl"] >= 102.5
+            
+        check_open_trades(t12_user_dir)
+        files_after = os.listdir(t12_pending)
+        t12_no_dup = len(files_after) == 1
+        
+        if has_file and t12_correct_be and t12_no_dup:
+            log("[PASS] Autonomes Stop-Loss Spooling (Net-BE & Duplikat-Schutz)")
+        else:
+            log(f"[FAIL] Autonomes Stop-Loss Spooling (File: {has_file}, BE: {t12_correct_be}, NoDup: {t12_no_dup})")
+            all_passed = False
+            
+    finally:
+        if old_get_price:
+            globals()['get_current_price'] = old_get_price
+        PENDING_SIGNALS_DIR = old_pending
+        PROCESSING_SIGNALS_DIR = old_processing
+        import shutil
+        shutil.rmtree(t12_user_dir, ignore_errors=True)
+
     log("================================================================================")
     if all_passed:
         sys.exit(0)
     else:
         sys.exit(1)
+
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--test":
