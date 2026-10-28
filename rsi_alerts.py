@@ -77,6 +77,7 @@ JOURNAL_FILE = os.path.join(BASE_DIR, "trade_journal.csv")
 CONFIG_FILE = os.path.join(BASE_DIR, "ticker_config.json")
 ALERT_STATE_DIR = _resolve_dir('INVARIX_STATE_DIR', [os.path.join(BASE_DIR, 'state')], create_if_missing=True)
 ALERT_STATE_FILE = os.path.join(ALERT_STATE_DIR, "alert_state.json")
+SIGNAL_INBOX_FILE = os.path.join(ALERT_STATE_DIR, "signal_inbox.json")
 USERS_DIR = _resolve_dir(
     "INVARIX_USERS_DIR",
     [
@@ -115,6 +116,16 @@ def get_berlin_now() -> datetime.datetime:
     except Exception:
         utc_now = datetime.datetime.now(datetime.timezone.utc)
         offset = 2 if 4 <= utc_now.month <= 10 else 1
+        return utc_now.astimezone(datetime.timezone(datetime.timedelta(hours=offset)))
+
+def get_ny_now() -> datetime.datetime:
+    """Liefert die aktuelle Zeit in 'America/New_York' (ET) mit deterministischem Offset-Fallback."""
+    try:
+        return datetime.datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    except Exception:
+        utc_now = datetime.datetime.now(datetime.timezone.utc)
+        # Grober Fallback für ET (UTC-4/UTC-5)
+        offset = -4 if 3 <= utc_now.month <= 11 else -5
         return utc_now.astimezone(datetime.timezone(datetime.timedelta(hours=offset)))
 
 
@@ -180,6 +191,28 @@ def atomic_write_json(filepath: str, data: dict) -> bool:
             except OSError:
                 pass
         return False
+def append_to_signal_inbox(signal_entry: dict):
+    """Speichert Signale maschinenlesbar für das Cockpit (Dashboard)."""
+    inbox = safe_load_json(SIGNAL_INBOX_FILE, default=[])
+    if not isinstance(inbox, list):
+        inbox = []
+        
+    now_ts = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    
+    # Veraltete Einträge (> 4 Stunden) rausfiltern
+    valid_inbox = []
+    for entry in inbox:
+        try:
+            dt = datetime.datetime.fromisoformat(entry.get("timestamp", ""))
+            if (now_ts - dt.timestamp()) <= 14400:
+                valid_inbox.append(entry)
+        except Exception:
+            pass
+            
+    # Neues Signal oben anfügen und auf 20 begrenzen
+    valid_inbox.insert(0, signal_entry)
+    valid_inbox = valid_inbox[:20]
+    atomic_write_json(SIGNAL_INBOX_FILE, valid_inbox)
 
 
 # Telegram Nachricht senden
@@ -301,19 +334,20 @@ CME_FUTURE_SYMBOLS = {
 ENERGY_FUTURE_SYMBOLS = {"CL=F", "MCL", "MCL=F", "NG=F", "QG", "QG=F"}
 
 ASSET_DNA = {
-    "NQ=F": {"tf": "1h", "session": (15, 30, 21, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.25, "decimals": 2, "rsi_bounds": (30, 70)},
-    "ES=F": {"tf": "1h", "session": (15, 30, 21, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.25, "decimals": 2, "rsi_bounds": (30, 70)},
-    "YM=F": {"tf": "1h", "session": (15, 30, 21, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 1.0, "decimals": 0, "rsi_bounds": (30, 70)},
-    "RTY=F": {"tf": "1h", "session": (15, 30, 21, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.10, "decimals": 2, "rsi_bounds": (30, 70)},
-    "EURUSD=X": {"tf": "1h", "session": (13, 0, 18, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70)},
-    "GBPUSD=X": {"tf": "4h", "session": (8, 0, 22, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70)},
-    "USDJPY=X": {"tf": "4h", "session": (8, 0, 22, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.001, "decimals": 3, "rsi_bounds": (30, 70)},
-    "CL=F": {"tf": "4h", "session": (14, 30, 20, 30), "min_score": 65, "allowed_setups": ["A", "B"], "desk": "Privat Rohstoffe", "tick": 0.01, "decimals": 2, "rsi_bounds": (30, 70)},
-    "GC=F": {"tf": "1h", "session": (9, 0, 18, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Privat Rohstoffe", "tick": 0.10, "decimals": 2, "rsi_bounds": (30, 70)},
-    "DEFAULT_FOREX": {"tf": "4h", "session": (8, 0, 22, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70)},
-    "DEFAULT_FUTURE": {"tf": "1h", "session": (14, 30, 21, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.25, "decimals": 2, "rsi_bounds": (30, 70)},
-    "DEFAULT_CRYPTO": {"tf": "4h", "session": (0, 0, 23, 59), "min_score": 65, "allowed_setups": ["A"], "desk": "Privat Krypto", "tick": 0.01, "decimals": 4, "rsi_bounds": (25, 75)},
-    "DEFAULT_EQUITY": {"tf": "4h", "session": (15, 30, 22, 0), "min_score": 70, "allowed_setups": ["B"], "desk": "Privat Swing", "tick": 0.01, "decimals": 2, "rsi_bounds": (35, 70)},
+    "NQ=F": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.25, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "ES=F": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.25, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "YM=F": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 1.0, "decimals": 0, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "RTY=F": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.10, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "EURUSD=X": {"tf": "1h", "session": (7, 0, 12, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "GBPUSD=X": {"tf": "4h", "session": (7, 0, 12, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "USDJPY=X": {"tf": "4h", "session": (7, 0, 12, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.001, "decimals": 3, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "CL=F": {"tf": "4h", "session": (8, 30, 11, 30), "min_score": 65, "allowed_setups": ["A", "B"], "desk": "Privat Rohstoffe", "tick": 0.01, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "GC=F": {"tf": "1h", "session": (9, 0, 15, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Privat Rohstoffe", "tick": 0.10, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "GERMAN_EQUITY": {"tf": "4h", "session": (9, 0, 17, 30), "min_score": 70, "allowed_setups": ["B"], "desk": "Privat Swing", "tick": 0.01, "decimals": 2, "rsi_bounds": (35, 70), "tz": "Europe/Berlin"},
+    "DEFAULT_FOREX": {"tf": "4h", "session": (0, 0, 23, 59), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "DEFAULT_FUTURE": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.25, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "DEFAULT_CRYPTO": {"tf": "4h", "session": (0, 0, 23, 59), "min_score": 65, "allowed_setups": ["A"], "desk": "Privat Krypto", "tick": 0.01, "decimals": 4, "rsi_bounds": (25, 75), "tz": "America/New_York"},
+    "DEFAULT_EQUITY": {"tf": "4h", "session": (9, 30, 16, 0), "min_score": 70, "allowed_setups": ["B"], "desk": "Privat Swing", "tick": 0.01, "decimals": 2, "rsi_bounds": (35, 70), "tz": "America/New_York"},
 }
 
 
@@ -326,6 +360,8 @@ def resolve_asset_dna(symbol: str) -> dict:
     norm_sym = normalize_symbol(symbol)
     if norm_sym in ASSET_DNA:
         return ASSET_DNA[norm_sym]
+    if norm_sym.endswith(".DE") or norm_sym.endswith(".SW"):
+        return ASSET_DNA["GERMAN_EQUITY"]
     sym_u = str(symbol).strip().upper()
     if sym_u in CME_FUTURE_SYMBOLS or "=F" in norm_sym:
         return ASSET_DNA["DEFAULT_FUTURE"]
@@ -371,10 +407,13 @@ def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, 
         if sym_u not in acc_tickers and norm_sym not in acc_tickers:
             return False, ""
             
-    # 2. Session-Check
-    if account_type in ["apex", "ftmo"] and dna and "session" in dna:
+    # 2. Session-Check (Globalisiert - Kein Privatkonto-Bypass mehr)
+    if dna and "session" in dna:
         sess_start_h, sess_start_m, sess_end_h, sess_end_m = dna["session"]
-        curr_minutes = now_dt.hour * 60 + now_dt.minute
+        tz_str = dna.get("tz", "America/New_York")
+        local_now = get_berlin_now() if tz_str == "Europe/Berlin" else get_ny_now()
+        
+        curr_minutes = local_now.hour * 60 + local_now.minute
         start_minutes = sess_start_h * 60 + sess_start_m
         end_minutes = sess_end_h * 60 + sess_end_m
         if not (start_minutes <= curr_minutes <= end_minutes):
@@ -635,12 +674,16 @@ def check_open_trades(user_dir: str):
         )
         is_energy = (sym_upper in ENERGY_FUTURE_SYMBOLS) or (norm_sym in ENERGY_FUTURE_SYMBOLS)
 
-        # Werktags EOD-Auto-Close Fenster (Energy: 20:25-21:00, US-Index/Metall: 22:50-23:00 Berliner Zeit)
+        # Werktags EOD-Auto-Close Fenster (New York ET)
+        ny_dt = get_ny_now()
+        ny_time = ny_dt.time()
+        is_ny_weekday = ny_dt.weekday() < 5
         trigger_auto_close = False
-        if is_apex_acc and is_cme_future and is_weekday:
-            if is_energy and datetime.time(20, 25) <= now_time <= datetime.time(21, 0):
+        
+        if is_apex_acc and is_cme_future and is_ny_weekday:
+            if is_energy and datetime.time(14, 20) <= ny_time <= datetime.time(14, 30):
                 trigger_auto_close = True
-            elif not is_energy and datetime.time(22, 50) <= now_time <= datetime.time(23, 0):
+            elif not is_energy and datetime.time(16, 50) <= ny_time <= datetime.time(16, 58):
                 trigger_auto_close = True
 
         curr_price = get_current_price(sym)
@@ -735,6 +778,14 @@ def check_open_trades(user_dir: str):
                 continue
 
         fee_offset = (est_fees / (position_size * pt_val * fx)) if (position_size * pt_val * fx) > 0 else 0.0
+        
+        if "=X" in sym_upper:
+            fx_pair = sym_upper.replace("=X", "")
+            if fx_pair in ["USDJPY", "USDCAD", "USDCHF"]:
+                fee_offset = fee_offset * curr_price
+            elif fx_pair == "EURJPY":
+                fee_offset = fee_offset * (curr_price * fx)
+                
         net_be = round_to_tick(entry_price + fee_offset if is_long else entry_price - fee_offset, sym)
         target_new_sl = None
 
@@ -1090,25 +1141,43 @@ def run_watchlist_entry_screener():
         sym_u = str(ticker).strip().upper()
         norm_sym = normalize_symbol(sym_u)
         is_crypto = is_crypto_symbol(sym_u)
-        if is_weekend and not is_crypto:
-            continue
-
         dna = resolve_asset_dna(sym_u)
         tf = dna["tf"]
         sess_start_h, sess_start_m, sess_end_h, sess_end_m = dna["session"]
         min_score = dna["min_score"]
         allowed_setups = dna["allowed_setups"]
         desk = dna["desk"]
-
-        curr_minutes = now.hour * 60 + now.minute
-        start_minutes = sess_start_h * 60 + sess_start_m
-        end_minutes = sess_end_h * 60 + sess_end_m
-
-        # Säule 2: Die pauschale Session-Prüfung wurde hier entfernt und
-        # in Phase 2 (Konto-Audit) verlagert. 24/7-Märkte werden nicht blockiert.
+        tz_str = dna.get("tz", "America/New_York")
         
-        now_utc = now.astimezone(datetime.timezone.utc)
-        if tf == "1h" and now.minute > 4:
+        local_now = get_berlin_now() if tz_str == "Europe/Berlin" else get_ny_now()
+        
+        if not is_crypto:
+            # 1. Wochenend-Prüfung (So 17:00 ET bis Fr 17:00 ET für CME/Forex)
+            if tz_str == "America/New_York" and ("=F" in norm_sym or "=X" in norm_sym or sym_u in CME_FUTURE_SYMBOLS):
+                if local_now.weekday() == 4 and local_now.hour >= 17:
+                    continue
+                if local_now.weekday() == 5:
+                    continue
+                if local_now.weekday() == 6 and local_now.hour < 17:
+                    continue
+            elif local_now.weekday() >= 5: # Aktien am Wochenende
+                continue
+
+            curr_minutes = local_now.hour * 60 + local_now.minute
+            start_minutes = sess_start_h * 60 + sess_start_m
+            end_minutes = sess_end_h * 60 + sess_end_m
+
+            # 2. Harter Session-Guard (Verhindert yfinance-Aufruf)
+            if curr_minutes < start_minutes or curr_minutes > end_minutes:
+                continue
+                
+            # 3. CME Wartungspause (17:00 - 18:00 ET)
+            if tz_str == "America/New_York" and ("=F" in norm_sym or sym_u in CME_FUTURE_SYMBOLS):
+                if 17 * 60 <= curr_minutes < 18 * 60:
+                    continue
+
+        now_utc = local_now.astimezone(datetime.timezone.utc)
+        if tf == "1h" and now_utc.minute > 4:
             continue
         if tf == "4h" and (now_utc.hour % 4 != 0 or now_utc.minute > 4):
             continue
@@ -1224,6 +1293,11 @@ def run_watchlist_entry_screener():
             if score < min_score:
                 continue
 
+            # SÄULE 5.5: Eiserner Long-Only-Riegel für Aktien
+            is_equity = not is_crypto and not any(ext in sym_u for ext in ["=F", "=X", "DX-Y"])
+            if is_equity and is_short:
+                continue
+
             # Slippage-Limit & Tick-Rundung
             if not is_short:
                 sl = float(df["Low"].tail(24).min()) if "Low" in df.columns else c_p * 0.98
@@ -1257,6 +1331,7 @@ def run_watchlist_entry_screener():
 
             any_delivered = False
             sent_chat_ids = set()
+            all_matched_account_names = []
 
             for tenant in tenants:
                 uname = tenant["username"]
@@ -1285,7 +1360,8 @@ def run_watchlist_entry_screener():
                     )
                     if is_valid:
                         matched_accounts.append((acc, a_type))
-                    
+                        all_matched_account_names.append(acc.get("name", "Unbekannt"))
+                        
                 if not matched_accounts:
                     continue
 
@@ -1319,11 +1395,14 @@ def run_watchlist_entry_screener():
                 # SÄULE 7: Execution-Mode & Spooler-Queue Brandmauer
                 for acc, account_type in matched_accounts:
                     if should_spool_signal(acc, account_type, is_crypto):
-                        broker_acc = acc.get("broker_account", "AUTO_ROUTED")
+                        broker_acc = acc.get("broker_account_id") or acc.get("broker_account") or "AUTO_ROUTED"
+                        acc_id_val = acc.get("id", "")
+                        acc_name_val = acc.get("name", acc_id_val)
+                        
                         signal_payload = {
                             "account_id": broker_acc,
-                            "lab_account_id": acc.get("id", ""),
-                            "account_name": acc.get("name", ""),
+                            "lab_account_id": acc_id_val,
+                            "account_name": acc_name_val,
                             "account_type": account_type,
                             "balance": float(acc.get("account_size", 50000.0)),
                             "symbol": sym_u,
@@ -1332,6 +1411,9 @@ def run_watchlist_entry_screener():
                             "setup_type": f"SETUP_{setup_type}",
                             "score": score,
                             "current_price": c_p,
+                            "entry": c_p,
+                            "stop_distance_points": abs(c_p - sl),
+                            "stop_loss_distance": abs(c_p - sl),
                             "stop_loss": sl,
                             "take_profit": tp,
                             "sl_price": sl,
@@ -1351,8 +1433,24 @@ def run_watchlist_entry_screener():
                             any_delivered = True
                             log(f"✅ Signal für {sym_u} (Konto: {acc.get('name')}) atomar in Spooler-Queue abgelegt.")
 
-            # Säule 8: Sofort-Flush (Transaktionale Persistenz)
+            # Säule 8: Sofort-Flush (Transaktionale Persistenz) & Inbox-Producer
             if any_delivered:
+                inbox_entry = {
+                    "id": f"sig_{int(time.time())}_{sym_u}",
+                    "timestamp": now.isoformat(),
+                    "symbol": sym_u,
+                    "direction": sig_dir_str,
+                    "setup": setup_name,
+                    "score": score,
+                    "timeframe": tf,
+                    "current_price": c_p,
+                    "max_limit_price": max_slip_price,
+                    "sl_price": sl,
+                    "tp_price": tp,
+                    "accounts": list(set(all_matched_account_names))
+                }
+                append_to_signal_inbox(inbox_entry)
+                
                 _IN_MEMORY_LOCKS.update([candle_key, bucket_key])
                 alert_state[candle_key] = True
                 alert_state[bucket_key] = True
