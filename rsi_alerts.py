@@ -191,6 +191,88 @@ def atomic_write_json(filepath: str, data: dict) -> bool:
             except OSError:
                 pass
         return False
+def resolve_ticker_name(symbol: str, config: dict = None) -> str:
+    """Löst das Symbol deterministisch in einen Klarnamen auf (Stufe 1-3)."""
+    sym_u = str(symbol).strip().upper()
+    
+    # Stufe 1: Statischer Master-Kader (Zero-Latency)
+    master_kader = {
+        "NQ=F": "Nasdaq 100", "MNQ": "Nasdaq 100", "MNQ=F": "Nasdaq 100",
+        "ES=F": "S&P 500", "MES": "S&P 500", "MES=F": "S&P 500",
+        "YM=F": "Dow Jones", "MYM": "Dow Jones", "MYM=F": "Dow Jones",
+        "RTY=F": "Russell 2000", "M2K": "Russell 2000", "M2K=F": "Russell 2000",
+        "CL=F": "Crude Oil", "MCL": "Crude Oil", "MCL=F": "Crude Oil",
+        "GC=F": "Gold", "MGC": "Gold", "MGC=F": "Gold",
+        "SI=F": "Silber", "SIL": "Silber",
+        "NG=F": "Erdgas", "QG": "Erdgas", "QG=F": "Erdgas",
+        "HG=F": "Kupfer", "MHG": "Kupfer", "MHG=F": "Kupfer",
+        "EURUSD=X": "EUR/USD", "GBPUSD=X": "GBP/USD", "USDJPY=X": "USD/JPY",
+        "EURJPY=X": "EUR/JPY", "AUDUSD=X": "AUD/USD", "USDCAD=X": "USD/CAD",
+        "USDCHF=X": "USD/CHF", "DX-Y.NYB": "US Dollar Index", "DX-Y": "US Dollar Index"
+    }
+    if sym_u in master_kader:
+        return master_kader[sym_u]
+        
+    # Stufe 2: Mandanten-Config
+    if config and isinstance(config, dict):
+        lists_to_check = ["screener_tickers", "prop_watchlist", "futures_tickers", "tickers"]
+        for lst_name in lists_to_check:
+            lst = config.get(lst_name, [])
+            if isinstance(lst, list):
+                for item in lst:
+                    if isinstance(item, dict) and str(item.get("symbol", "")).strip().upper() == sym_u:
+                        found_name = str(item.get("name", "")).strip()
+                        if found_name and found_name.lower() not in ["nan", "none"]:
+                            return found_name
+
+    # Stufe 3: Poka-Yoke Fallback
+    return sym_u
+
+
+def prune_alert_state(state_file: str, max_age_seconds: int = 172800) -> bool:
+    """Bereinigt verwaiste Einträge aus alert_state.json nach 48h (172.800 Sek)."""
+    import re
+    state = safe_load_json(state_file, default={})
+    now_ts = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    modified = False
+    
+    # Bereinigung 'dismissed_signals'
+    dismissed = state.get("dismissed_signals", [])
+    if isinstance(dismissed, list):
+        new_dismissed = []
+        for sig_id in dismissed:
+            m = re.search(r"sig_(\d+)_", str(sig_id))
+            if m:
+                ts = int(m.group(1))
+                if (now_ts - ts) <= max_age_seconds:
+                    new_dismissed.append(sig_id)
+                else:
+                    modified = True
+            else:
+                new_dismissed.append(sig_id)
+        if modified:
+            state["dismissed_signals"] = new_dismissed
+
+    # Bereinigung 'consumed_signals'
+    consumed = state.get("consumed_signals", {})
+    if isinstance(consumed, dict):
+        new_consumed = {}
+        for sig_id, accs in consumed.items():
+            m = re.search(r"sig_(\d+)_", str(sig_id))
+            if m:
+                ts = int(m.group(1))
+                if (now_ts - ts) <= max_age_seconds:
+                    new_consumed[sig_id] = accs
+                else:
+                    modified = True
+            else:
+                new_consumed[sig_id] = accs
+        if modified:
+            state["consumed_signals"] = new_consumed
+
+    if modified:
+        return atomic_write_json(state_file, state)
+    return False
 def append_to_signal_inbox(signal_entry: dict):
     """Speichert Signale maschinenlesbar für das Cockpit (Dashboard)."""
     inbox = safe_load_json(SIGNAL_INBOX_FILE, default=[])
@@ -598,6 +680,12 @@ def check_open_trades(user_dir: str):
         sym_raw = trade.get("symbol", trade.get("ticker", ""))
         sym = str(sym_raw).strip() if pd.notna(sym_raw) else ""
 
+        trade_name = str(trade.get("name", "")).strip()
+        if not trade_name or trade_name.lower() in ["nan", "none"]:
+            trade_name = resolve_ticker_name(sym, config)
+
+        display_name = f"{sym} ({trade_name})" if trade_name and trade_name != sym else sym
+
         acc_raw = trade.get("account_name", "")
         acc_name_raw = str(acc_raw) if pd.notna(acc_raw) else ""
         acc_name = html.escape(acc_name_raw)
@@ -693,13 +781,13 @@ def check_open_trades(user_dir: str):
                 if not alert_state.get(err_key):
                     alerts.append((
                         err_key,
-                        f"🚨 <b>KRITISCHER EOD-FEHLER: {html.escape(sym)} ({acc_name})</b>\n"
+                        f"🚨 <b>KRITISCHER EOD-FEHLER: {html.escape(display_name)} ({acc_name})</b>\n"
                         f"• Live-Kurs nicht abrufbar (0.0) während des Apex-EOD-Schließfensters!\n"
                         f"• Aktion: Position SOFORT manuell im Broker prüfen und schließen!"
                     ))
             continue
 
-        # Initial-Risiko pro Einheit rekonstruieren (verhindert Blindheit bei SL == Entry / Break-Even)
+        # Initial-Risiko pro Einheit rekonstruieren
         if initial_sl_price > 0 and abs(entry_price - initial_sl_price) > 0:
             risk_per_share = abs(entry_price - initial_sl_price)
         elif planned_risk_eur > 0 and position_size > 0 and pt_val > 0 and fx > 0:
@@ -736,30 +824,33 @@ def check_open_trades(user_dir: str):
             if not alert_state.get(eod_auto_key):
                 alerts.append((
                     eod_auto_key,
-                    f"🛑 AUTO-CLOSE: Position {html.escape(sym)} wurde zum Schutz vor Übernacht-Regelbrüchen automatisch im Journal geschlossen!"
+                    f"🛑 AUTO-CLOSE: Position {html.escape(display_name)} wurde zum Schutz vor Übernacht-Regelbrüchen automatisch im Journal geschlossen!"
                 ))
             continue
 
-        # 0) Exit-Erkennung (SL / TP) — greift auch bei Break-Even-Stop (sl_price == entry_price)
+        # 0) Exit-Erkennung (SL / TP) — greift auch bei Break-Even-Stop
         if active_sl > 0:
             sl_hit_key = f"{t_id}_sl_hit"
             is_sl_hit = (curr_price <= active_sl) if is_long else (curr_price >= active_sl)
             if is_sl_hit and not alert_state.get(sl_hit_key):
                 alerts.append((
                     sl_hit_key,
-                    f"🛑 <b>STOP-LOSS GERISSEN: {html.escape(sym)} ({direction})</b>\n"
+                    f"🛑 <b>STOP-LOSS GERISSEN: {html.escape(display_name)} ({direction})</b>\n"
                     f"• Konto: {acc_name}\n"
                     f"• Kurs: {format_price(curr_price, sym)} | SL: {format_price(active_sl, sym)}\n"
                     f"• Aktion: Position im Broker prüfen und im Journal schließen!"
                 ))
 
-        if 0 < tp_price < 900000:
+        is_runner_profile = exit_mode in ["ALPHA_CASHFLOW", "HOME_RUN_TREND", "private_alpha"]
+        has_valid_tp = (0 < tp_price < 900000)
+
+        if has_valid_tp and not is_runner_profile:
             tp_hit_key = f"{t_id}_tp_hit"
             is_tp_hit = (curr_price >= tp_price) if is_long else (curr_price <= tp_price)
             if is_tp_hit and not alert_state.get(tp_hit_key):
                 alerts.append((
                     tp_hit_key,
-                    f"🎯 <b>TAKE-PROFIT ERREICHT: {html.escape(sym)} ({direction})</b>\n"
+                    f"🎯 <b>TAKE-PROFIT ERREICHT: {html.escape(display_name)} ({direction})</b>\n"
                     f"• Konto: {acc_name}\n"
                     f"• Kurs: {format_price(curr_price, sym)} | TP: {format_price(tp_price, sym)}\n"
                     f"• Aktion: Gewinn im Broker realisieren und Trade im Journal schließen!"
@@ -789,68 +880,13 @@ def check_open_trades(user_dir: str):
         net_be = round_to_tick(entry_price + fee_offset if is_long else entry_price - fee_offset, sym)
         target_new_sl = None
 
-        # a) Netto-Break-Even & Scale-Out (+1.0 R bzw. +1.5 R bei Krypto)
+        # a) Target_new_sl & Spooling (Unabhängig von den Telegram-Alarmen)
         is_crypto = any(ext in sym_upper for ext in ["-USD", "-EUR", "-GBP", "-USDT", "-CHF", "BTC", "ETH", "SOL", "NEAR"])
-        be_key = f"{t_id}_be"
-        if exit_mode == "DEFENSIVE_EMERGENCY":
-            be_threshold = 0.75
-        else:
-            be_threshold = 1.5 if is_crypto else 1.0
+        be_threshold = 0.75 if exit_mode == "DEFENSIVE_EMERGENCY" else (1.5 if is_crypto else 1.0)
 
         if current_r >= be_threshold:
             target_new_sl = net_be
-            if not alert_state.get(be_key):
-                scale_pct = 50 if exit_profile in ["prop_guard", "defensive_swing", "apex_commodity_scale", "commodity_scale"] or is_crypto or exit_mode == "DEFENSIVE_EMERGENCY" else 30
-                if exit_mode == "DEFENSIVE_EMERGENCY":
-                    alerts.append((
-                        be_key,
-                        f"🚨 <b>[DEFENSIVE-EMERGENCY] SLIPPAGE-SCHUTZ & FRÜHES NET-BE: {html.escape(sym)} ({direction})</b>\n"
-                        f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht (Notfall-Schwelle: +0.75 R)!\n"
-                        f"• Aktion: <b>50% Teilverkauf</b> & Stop-Loss sofort auf <b>Netto-Break-Even</b> ziehen (Schutz wegen schlechtem Einstiegs-CRV)!"
-                    ))
-                elif exit_mode == "TARGET_LOCKED" and not is_crypto:
-                    alerts.append((
-                        be_key,
-                        f"⚡ <b>[TARGET-LOCKED] APEX TIGHTENING: {html.escape(sym)} ({direction})</b>\n"
-                        f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R\n"
-                        f"• Aktion: <b>Keine Teilschließung</b>, SL zieht aggressiv auf 80% des Buchgewinns nach, um Trailing-Drawdown zu schützen!"
-                    ))
-                elif is_crypto:
-                    alerts.append((
-                        be_key,
-                        f"🪙 <b>KRYPTO SCALE-OUT & NET-BE: {html.escape(sym)} ({direction})</b>\n"
-                        f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
-                        f"• Aktion: <b>{scale_pct}% Teilverkauf</b> empfohlen.\n"
-                        f"• Info: SL jetzt auf Netto-Break-Even ziehen & 3.5x ATR Trail starten!"
-                    ))
-                elif exit_mode == "PROP_DEFENSIVE":
-                    alerts.append((
-                        be_key,
-                        f"🛡️ <b>[PROP-DEFENSIVE] SCALE-OUT 50% & NET-BE: {html.escape(sym)} ({direction})</b>\n"
-                        f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
-                        f"• Aktion: <b>50% Teilverkauf</b> empfohlen.\n"
-                        f"• Info: Stop-Loss jetzt auf Netto-Break-Even nachziehen."
-                    ))
-                else:  # ALPHA_CASHFLOW & HOME_RUN_TREND
-                    if exit_mode == "HOME_RUN_TREND":
-                        alerts.append((
-                            be_key,
-                            f"🚀 <b>[HOME-RUN-TREND] NET-BE ERREICHT: {html.escape(sym)} ({direction})</b>\n"
-                            f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
-                            f"• Aktion: <b>Kein Teilverkauf</b> (Home-Run Modus).\n"
-                            f"• Info: Stop-Loss jetzt auf Netto-Break-Even nachziehen."
-                        ))
-                    else:
-                        alerts.append((
-                            be_key,
-                            f"⚖️ <b>[ALPHA-CASHFLOW] SCALE-OUT 30% & NET-BE: {html.escape(sym)} ({direction})</b>\n"
-                            f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
-                            f"• Aktion: <b>30% Teilverkauf</b> empfohlen.\n"
-                            f"• Info: Stop-Loss jetzt auf Netto-Break-Even nachziehen."
-                        ))
 
-        # b) Trailing-Stop Nachzug (+1.5 R)
-        trail_key = f"{t_id}_trail"
         if current_r >= 1.5:
             trail_mult = 2.0 if exit_mode == "PROP_DEFENSIVE" else 2.5
             if exit_mode == "DEFENSIVE_EMERGENCY":
@@ -869,37 +905,18 @@ def check_open_trades(user_dir: str):
                 peak_protection = entry_price + (profit_per_share * 0.80) * dir_m
                 new_sl = max(new_sl, peak_protection) if is_long else min(new_sl, peak_protection)
 
-            # Harter Monotonie-Schutz (mindestens Netto-Break-Even, nie schlechter als Initial-SL, nie über aktuellem Kurs)
+            # Harter Monotonie-Schutz (mindestens Netto-Break-Even, nie schlechter als Initial-SL)
             if is_long:
                 effective_old_sl = active_sl if active_sl > 0 else entry_price
                 new_sl = min(max(new_sl, net_be, effective_old_sl), curr_price)
                 new_sl = round_to_tick(new_sl, sym)
-                is_improved = new_sl > active_sl
             else:
                 effective_old_sl = active_sl if active_sl > 0 else entry_price
                 new_sl = max(min(new_sl, net_be, effective_old_sl), curr_price)
                 new_sl = round_to_tick(new_sl, sym)
-                is_improved = (active_sl <= 0) or (new_sl < active_sl)
 
             if target_new_sl is None or (is_long and new_sl > target_new_sl) or (not is_long and new_sl < target_new_sl):
                 target_new_sl = new_sl
-
-            if is_improved and not alert_state.get(trail_key):
-                if exit_mode == "HOME_RUN_TREND":
-                    alerts.append((
-                        trail_key,
-                        f"🚀 <b>[HOME-RUN-TREND] TRAILING-STOP AKTIV: {html.escape(sym)} ({direction})</b>\n"
-                        f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
-                        f"• Empfohlener Trail-SL: <b>{format_price(new_sl, sym)}</b> (Faktor: {trail_mult}x ATR)"
-                    ))
-                else:
-                    alerts.append((
-                        trail_key,
-                        f"📈 <b>TRAILING-STOP AKTIV: {html.escape(sym)} ({direction})</b>\n"
-                        f"• Konto: {acc_name} | Modus: {str(exit_mode).replace('_', '-')}\n"
-                        f"• Gewinn: +{current_r:.2f} R erreicht!\n"
-                        f"• Empfohlener Trail-SL: <b>{format_price(new_sl, sym)}</b> (Faktor: {trail_mult}x ATR)"
-                    ))
 
         # --- AUTONOMES SIGNAL-SPOOLING (MODIFY_STOP) ---
         if target_new_sl is not None:
@@ -950,52 +967,153 @@ def check_open_trades(user_dir: str):
                             if atomic_write_json(sig_file, sig_payload):
                                 log(f"[{get_berlin_now().strftime('%H:%M:%S')}] ✅ AUTO-MODIFY_STOP gespoolt: {sym} ({acc_name_raw}) -> Neuer SL: {target_new_sl}")
 
-        # b2) Stufen-Chandelier (+2.5 R)
-        r25_key = f"{t_id}_r25"
-        if current_r >= 2.5 and not alert_state.get(r25_key):
-            alerts.append((
-                r25_key,
-                f"🎯 <b>GEWINNSICHERUNG (+2.5 R): {html.escape(sym)} ({direction})</b>\n"
-                f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R\n"
-                f"• Aktion: Stop-Loss jetzt auf mindestens <b>+1.0 R Reingewinn</b> nachziehen!"
-            ))
-
-        # b2.5) Parabolik-Schutz / Climax-Trailing (+3.0 R)
-        r30_key = f"{t_id}_r30"
-        if current_r >= 3.0 and not alert_state.get(r30_key):
-            alerts.append((
-                r30_key,
-                f"⚡ <b>PARABOLIK-SCHUTZ / CLIMAX (+3.0 R): {html.escape(sym)} ({direction})</b>\n"
-                f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R\n"
-                f"• Aktion: Parabolische Übertreibung absichern! Stop-Loss aggressiv auf mindestens +2.0 R nachziehen oder Bar-by-Bar eng am Vorperioden-Extremum trailen, um V-Reversals abzufangen."
-            ))
-
-        # b3) Traum-Profit Absicherung (+4.0 R)
-        r40_key = f"{t_id}_r40"
-        if current_r >= 4.0 and not alert_state.get(r40_key):
-            alerts.append((
-                r40_key,
-                f"🔥 <b>TRAUM-PROFIT (+4.0 R): {html.escape(sym)} ({direction})</b>\n"
-                f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R\n"
-                f"• Aktion: Stop-Loss auf mindestens <b>+2.5 R</b> anheben (oder 3.0x ATR Trail)!"
-            ))
-
-        # b4) Maximal-Profit / Peak Protection (+6.0 R)
+        # --- HIERARCHISCHE ALARM-STUFEN (Strict Descending) ---
+        highest_alert_triggered = False
+        
+        # Stufe 5: Maximal-Profit (+6.0 R)
         r60_key = f"{t_id}_r60"
-        if current_r >= 6.0 and not alert_state.get(r60_key):
-            alerts.append((
-                r60_key,
-                f"👑 <b>MAXIMAL-PROFIT (+6.0 R): {html.escape(sym)} ({direction})</b>\n"
-                f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R\n"
-                f"• Aktion: 50% Peak-Protection aktiv! SL strikt auf die Hälfte des offenen Buchgewinns nachziehen!"
-            ))
+        if current_r >= 6.0:
+            if not alert_state.get(r60_key):
+                if not highest_alert_triggered:
+                    alerts.append((
+                        r60_key,
+                        f"👑 <b>MAXIMAL-PROFIT (+6.0 R): {html.escape(display_name)} ({direction})</b>\n"
+                        f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R\n"
+                        f"• Aktion: 50% Peak-Protection aktiv! SL strikt auf die Hälfte des offenen Buchgewinns nachziehen!"
+                    ))
+                    highest_alert_triggered = True
+                else:
+                    alert_state[r60_key] = True
+
+        # Stufe 4: Traum-Profit (+4.0 R)
+        r40_key = f"{t_id}_r40"
+        if current_r >= 4.0:
+            if not alert_state.get(r40_key):
+                if not highest_alert_triggered:
+                    alerts.append((
+                        r40_key,
+                        f"🔥 <b>TRAUM-PROFIT (+4.0 R): {html.escape(display_name)} ({direction})</b>\n"
+                        f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R\n"
+                        f"• Aktion: Stop-Loss auf mindestens <b>+2.5 R</b> anheben (oder 3.0x ATR Trail)!"
+                    ))
+                    highest_alert_triggered = True
+                else:
+                    alert_state[r40_key] = True
+
+        # Stufe 3: Parabolik-Schutz / Climax (+3.0 R)
+        r30_key = f"{t_id}_r30"
+        if current_r >= 3.0:
+            if not alert_state.get(r30_key):
+                if not highest_alert_triggered:
+                    alerts.append((
+                        r30_key,
+                        f"⚡ <b>PARABOLIK-SCHUTZ / CLIMAX (+3.0 R): {html.escape(display_name)} ({direction})</b>\n"
+                        f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R\n"
+                        f"• Aktion: Parabolische Übertreibung absichern! Stop-Loss aggressiv auf mindestens +2.0 R nachziehen oder Bar-by-Bar eng am Vorperioden-Extremum trailen, um V-Reversals abzufangen."
+                    ))
+                    highest_alert_triggered = True
+                else:
+                    alert_state[r30_key] = True
+
+        # Stufe 2: Gewinnsicherung (+2.5 R)
+        r25_key = f"{t_id}_r25"
+        if current_r >= 2.5:
+            if not alert_state.get(r25_key):
+                if not highest_alert_triggered:
+                    alerts.append((
+                        r25_key,
+                        f"🎯 <b>GEWINNSICHERUNG (+2.5 R): {html.escape(display_name)} ({direction})</b>\n"
+                        f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R\n"
+                        f"• Aktion: Stop-Loss jetzt auf mindestens <b>+1.0 R Reingewinn</b> nachziehen!"
+                    ))
+                    highest_alert_triggered = True
+                else:
+                    alert_state[r25_key] = True
+                    
+        # Stufe 1: Trailing-Stop Nachzug (+1.5 R)
+        trail_key = f"{t_id}_trail"
+        if current_r >= 1.5:
+            is_improved = (target_new_sl > active_sl) if is_long else ((active_sl <= 0) or (target_new_sl < active_sl))
+            if is_improved and not alert_state.get(trail_key):
+                if not highest_alert_triggered:
+                    if exit_mode == "HOME_RUN_TREND":
+                        alerts.append((
+                            trail_key,
+                            f"🚀 <b>[HOME-RUN-TREND] TRAILING-STOP AKTIV: {html.escape(display_name)} ({direction})</b>\n"
+                            f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
+                            f"• Empfohlener Trail-SL: <b>{format_price(target_new_sl, sym)}</b> (Faktor: {trail_mult}x ATR)"
+                        ))
+                    else:
+                        alerts.append((
+                            trail_key,
+                            f"📈 <b>TRAILING-STOP AKTIV: {html.escape(display_name)} ({direction})</b>\n"
+                            f"• Konto: {acc_name} | Modus: {str(exit_mode).replace('_', '-')}\n"
+                            f"• Gewinn: +{current_r:.2f} R erreicht!\n"
+                            f"• Empfohlener Trail-SL: <b>{format_price(target_new_sl, sym)}</b> (Faktor: {trail_mult}x ATR)"
+                        ))
+                    highest_alert_triggered = True
+                else:
+                    alert_state[trail_key] = True
+                    
+        # Stufe 0: Net-BE (+1.0 R / +1.5 R)
+        be_key = f"{t_id}_be"
+        if current_r >= be_threshold:
+            if not alert_state.get(be_key):
+                if not highest_alert_triggered:
+                    scale_pct = 50 if exit_profile in ["prop_guard", "defensive_swing", "apex_commodity_scale", "commodity_scale"] or is_crypto or exit_mode == "DEFENSIVE_EMERGENCY" else 30
+                    if exit_mode == "DEFENSIVE_EMERGENCY":
+                        alerts.append((
+                            be_key,
+                            f"🚨 <b>[DEFENSIVE-EMERGENCY] SLIPPAGE-SCHUTZ & FRÜHES NET-BE: {html.escape(display_name)} ({direction})</b>\n"
+                            f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
+                            f"• Aktion: <b>50% Teilverkauf</b> & Stop-Loss sofort auf <b>Netto-Break-Even</b> ziehen!"
+                        ))
+                    elif exit_mode == "TARGET_LOCKED" and not is_crypto:
+                        alerts.append((
+                            be_key,
+                            f"⚡ <b>[TARGET-LOCKED] APEX TIGHTENING: {html.escape(display_name)} ({direction})</b>\n"
+                            f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R\n"
+                            f"• Aktion: <b>Keine Teilschließung</b>, SL zieht aggressiv auf 80% des Buchgewinns nach!"
+                        ))
+                    elif is_crypto:
+                        alerts.append((
+                            be_key,
+                            f"🪙 <b>KRYPTO SCALE-OUT & NET-BE: {html.escape(display_name)} ({direction})</b>\n"
+                            f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
+                            f"• Aktion: <b>{scale_pct}% Teilverkauf</b> empfohlen. SL auf Netto-Break-Even!"
+                        ))
+                    elif exit_mode == "PROP_DEFENSIVE":
+                        alerts.append((
+                            be_key,
+                            f"🛡️ <b>[PROP-DEFENSIVE] SCALE-OUT 50% & NET-BE: {html.escape(display_name)} ({direction})</b>\n"
+                            f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
+                            f"• Aktion: <b>50% Teilverkauf</b> empfohlen. SL auf Netto-Break-Even!"
+                        ))
+                    else:  # ALPHA_CASHFLOW & HOME_RUN_TREND
+                        if exit_mode == "HOME_RUN_TREND":
+                            alerts.append((
+                                be_key,
+                                f"🚀 <b>[HOME-RUN-TREND] NET-BE ERREICHT: {html.escape(display_name)} ({direction})</b>\n"
+                                f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
+                                f"• Aktion: <b>Kein Teilverkauf</b> (Home-Run Modus). SL auf Netto-Break-Even!"
+                            ))
+                        else:
+                            alerts.append((
+                                be_key,
+                                f"⚖️ <b>[ALPHA-CASHFLOW] SCALE-OUT 30% & NET-BE: {html.escape(display_name)} ({direction})</b>\n"
+                                f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
+                                f"• Aktion: <b>30% Teilverkauf</b> empfohlen. SL auf Netto-Break-Even!"
+                            ))
+                    highest_alert_triggered = True
+                else:
+                    alert_state[be_key] = True
 
         # c) Time-Stop Warnung
         time_key = f"{t_id}_time"
         if atr_days > 0 and days_held > (atr_days * 1.5) and not alert_state.get(time_key):
             alerts.append((
                 time_key,
-                f"⏳ <b>TIME-STOP WARNUNG: {html.escape(sym)}</b>\n"
+                f"⏳ <b>TIME-STOP WARNUNG: {html.escape(display_name)}</b>\n"
                 f"• Konto: {acc_name}\n"
                 f"• Haltedauer: {days_held} Tage (Erwartet: {int(atr_days)} Tage)\n"
                 f"• Aktion: Trade zeigt keine Dynamik. Schließung prüfen!"
@@ -1171,10 +1289,14 @@ def run_watchlist_entry_screener():
             if curr_minutes < start_minutes or curr_minutes > end_minutes:
                 continue
                 
+            CME_MICROS = {"MNQ", "MES", "MYM", "M2K", "MCL", "MGC", "SIL", "QG", "MHG", "NQ", "ES", "YM", "RTY", "CL", "GC", "SI", "NG", "HG"}
+            is_cme_future = ("=F" in norm_sym or sym_u in CME_MICROS)
+            
             # 3. CME Wartungspause (17:00 - 18:00 ET)
-            if tz_str == "America/New_York" and ("=F" in norm_sym or sym_u in CME_FUTURE_SYMBOLS):
-                if 17 * 60 <= curr_minutes < 18 * 60:
-                    continue
+            if tz_str == "America/New_York" and is_cme_future:
+                if local_now.weekday() in [0, 1, 2, 3]:
+                    if 17 * 60 <= curr_minutes < 18 * 60:
+                        continue
 
         now_utc = local_now.astimezone(datetime.timezone.utc)
         if tf == "1h" and now_utc.minute > 4:
@@ -1332,6 +1454,7 @@ def run_watchlist_entry_screener():
             any_delivered = False
             sent_chat_ids = set()
             all_matched_account_names = []
+            ticker_name = sym_u
 
             for tenant in tenants:
                 uname = tenant["username"]
@@ -1365,11 +1488,17 @@ def run_watchlist_entry_screener():
                 if not matched_accounts:
                     continue
 
+                resolved = resolve_ticker_name(sym_u, cfg)
+                if resolved != sym_u:
+                    ticker_name = resolved
+                    
+                display_name = f"{sym_u} ({ticker_name})" if ticker_name != sym_u else sym_u
+
                 # Säule 9: Header-Steuerung und Farb-Badges (Zentralisiert)
                 header, account_badges = get_telegram_header_and_badges(matched_accounts, is_crypto, is_short)
                 accounts_str = "\n".join(account_badges)
                 
-                msg = f"""<b>{header} — {html.escape(sym_u)}</b>
+                msg = f"""<b>{header} — {html.escape(display_name)}</b>
 
 <b>Konten:</b>
 {accounts_str}
@@ -1406,6 +1535,7 @@ def run_watchlist_entry_screener():
                             "account_type": account_type,
                             "balance": float(acc.get("account_size", 50000.0)),
                             "symbol": sym_u,
+                            "name": ticker_name,
                             "direction": sig_dir_str,
                             "setup": f"SETUP_{setup_type}",
                             "setup_type": f"SETUP_{setup_type}",
@@ -1439,6 +1569,7 @@ def run_watchlist_entry_screener():
                     "id": f"sig_{int(time.time())}_{sym_u}",
                     "timestamp": now.isoformat(),
                     "symbol": sym_u,
+                    "name": ticker_name,
                     "direction": sig_dir_str,
                     "setup": setup_name,
                     "score": score,
@@ -1462,6 +1593,7 @@ def run_watchlist_entry_screener():
 # Hauptfunktion: Kontinuierlicher Trade-Copilot
 def main():
     log(f"🤖 Multi-Tenant Trade-Copilot gestartet (Polling: {POLLING_INTERVAL}s | USERS_DIR: {USERS_DIR}).")
+    last_prune_time = 0.0
 
     try:
         while True:
@@ -1528,6 +1660,14 @@ def main():
                                     atomic_write_json(alert_state_file, alert_state)
 
                     log(f"[{get_berlin_now().strftime('%H:%M:%S')}] {users_checked} Mandanten geprüft. {alerts_sent} Alarme gesendet.")
+                    if time.time() - last_prune_time >= 3600:
+                        for user_folder in os.listdir(USERS_DIR):
+                            user_dir = os.path.join(USERS_DIR, user_folder)
+                            if os.path.isdir(user_dir):
+                                user_state_file = os.path.join(user_dir, "alert_state.json")
+                                if os.path.exists(user_state_file):
+                                    prune_alert_state(user_state_file)
+                        last_prune_time = time.time()
 
                     # Autonomer Watchlist-Screener aufrufen
                     run_watchlist_entry_screener()
@@ -1746,6 +1886,112 @@ def run_tests():
             log("[PASS] Autonomes Stop-Loss Spooling (Net-BE & Duplikat-Schutz)")
         else:
             log(f"[FAIL] Autonomes Stop-Loss Spooling (File: {has_file}, BE: {t12_correct_be}, NoDup: {t12_no_dup})")
+            all_passed = False
+        # 13. TEST: TP-BEFREIUNG FÜR RUNNER-PROFILE
+        t13_exit_mode = "HOME_RUN_TREND"
+        t13_tp_price = 0.0
+        t13_is_runner = t13_exit_mode in ["ALPHA_CASHFLOW", "HOME_RUN_TREND", "private_alpha"]
+        t13_has_valid_tp = (0 < t13_tp_price < 900000)
+        t13_alert_triggered = False
+        if t13_has_valid_tp and not t13_is_runner:
+            t13_alert_triggered = True
+            
+        if not t13_alert_triggered:
+            log("[PASS] TP-Befreiung für Runner-Profile (Kein Alarm bei TP=0.0 / Runner)")
+        else:
+            log("[FAIL] TP-Befreiung für Runner-Profile")
+            all_passed = False
+
+        # 14. TEST: CME GLOBEX WARTUNGSFENSTER (17:00 - 18:00 ET)
+        try:
+            ny_tz_14 = zoneinfo.ZoneInfo("America/New_York")
+        except:
+            ny_tz_14 = datetime.timezone(datetime.timedelta(hours=-4))
+        
+        t14_dt = datetime.datetime(2026, 10, 21, 17, 30, tzinfo=ny_tz_14) # Mittwoch
+        t14_curr_min = t14_dt.hour * 60 + t14_dt.minute
+        t14_blocked = False
+        
+        if t14_dt.weekday() in [0, 1, 2, 3]:
+            if 17 * 60 <= t14_curr_min < 18 * 60:
+                t14_blocked = True
+                    
+        if t14_blocked:
+            log("[PASS] CME Globex Wartungsfenster (Sperre 17:00-18:00 ET greift)")
+        else:
+            log("[FAIL] CME Globex Wartungsfenster")
+            all_passed = False
+
+        # 15. TEST: HIERARCHISCHER ALARM-FILTER BEI KURSSPRÜNGEN
+        t15_current_r = 3.2
+        t15_highest_alert_triggered = False
+        t15_alerts = []
+        t15_alert_state = {}
+        
+        if t15_current_r >= 3.0:
+            if not t15_highest_alert_triggered:
+                t15_alerts.append("CLIMAX")
+                t15_highest_alert_triggered = True
+            else:
+                t15_alert_state["r30"] = True
+                
+        if t15_current_r >= 2.5:
+            if not t15_highest_alert_triggered:
+                t15_alerts.append("GEWINNSICHERUNG")
+                t15_highest_alert_triggered = True
+            else:
+                t15_alert_state["r25"] = True
+                
+        if t15_current_r >= 1.5:
+            if not t15_highest_alert_triggered:
+                t15_alerts.append("TRAIL")
+                t15_highest_alert_triggered = True
+            else:
+                t15_alert_state["trail"] = True
+
+        if len(t15_alerts) == 1 and t15_alerts[0] == "CLIMAX" and t15_alert_state.get("r25") and t15_alert_state.get("trail"):
+            log("[PASS] Hierarchischer Alarm-Filter (Nur 1 Alarm gesendet, Rest markiert)")
+        else:
+            log(f"[FAIL] Hierarchischer Alarm-Filter (Alarme: {t15_alerts}, State: {t15_alert_state})")
+            all_passed = False
+        # 16. TEST: KLARNAMEN-ERZWINGUNG & 48H-PRUNING
+        # A) Name Resolver
+        mock_cfg = {"tickers": [{"symbol": "PWR", "name": "Quanta Services"}]}
+        name_1 = resolve_ticker_name("NQ=F")
+        name_2 = resolve_ticker_name("PWR", mock_cfg)
+        name_3 = resolve_ticker_name("UNKNOWN", mock_cfg)
+        res_resolver = (name_1 == "Nasdaq 100" and name_2 == "Quanta Services" and name_3 == "UNKNOWN")
+        
+        # B) Pruning
+        with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as tmp:
+            t16_file = tmp.name
+            now_ts = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+            ts_50h = now_ts - (50 * 3600)
+            ts_2h = now_ts - (2 * 3600)
+            mock_state = {
+                "dismissed_signals": [f"sig_{ts_50h}_A", f"sig_{ts_2h}_B", "invalid_id"],
+                "consumed_signals": {f"sig_{ts_50h}_C": ["acc1"], f"sig_{ts_2h}_D": ["acc2"]}
+            }
+            json.dump(mock_state, tmp)
+        
+        try:
+            prune_alert_state(t16_file)
+            with open(t16_file, "r") as f: pruned = json.load(f)
+            
+            res_pruning = (
+                f"sig_{ts_50h}_A" not in pruned["dismissed_signals"] and
+                f"sig_{ts_2h}_B" in pruned["dismissed_signals"] and
+                "invalid_id" in pruned["dismissed_signals"] and
+                f"sig_{ts_50h}_C" not in pruned["consumed_signals"] and
+                f"sig_{ts_2h}_D" in pruned["consumed_signals"]
+            )
+        finally:
+            os.remove(t16_file)
+
+        if res_resolver and res_pruning:
+            log("[PASS] Klarnamen-Resolver & Autonomes 48h-Pruning")
+        else:
+            log(f"[FAIL] Klarnamen-Resolver & Autonomes 48h-Pruning (Resolver: {res_resolver}, Pruning: {res_pruning})")
             all_passed = False
             
     finally:
