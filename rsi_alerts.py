@@ -279,15 +279,23 @@ def append_to_signal_inbox(signal_entry: dict):
     if not isinstance(inbox, list):
         inbox = []
         
-    now_ts = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    now_ts = time.time()
     
-    # Veraltete Einträge (> 4 Stunden) rausfiltern
+    # Veraltete Einträge dynamisch nach Timeframe filtern (TTL / expires_at primär)
     valid_inbox = []
     for entry in inbox:
         try:
-            dt = datetime.datetime.fromisoformat(entry.get("timestamp", ""))
-            if (now_ts - dt.timestamp()) <= 14400:
-                valid_inbox.append(entry)
+            if "expires_at" in entry:
+                if now_ts <= float(entry["expires_at"]):
+                    valid_inbox.append(entry)
+            else:
+                # Fallback für Altdaten ohne expires_at
+                dt = datetime.datetime.fromisoformat(entry.get("timestamp", ""))
+                tf = entry.get("timeframe", "")
+                limit_sec = 3900 if tf == "1h" else 14400
+                now_utc_ts = datetime.datetime.now(datetime.timezone.utc).timestamp()
+                if (now_utc_ts - dt.timestamp()) <= limit_sec:
+                    valid_inbox.append(entry)
         except Exception:
             pass
             
@@ -488,6 +496,23 @@ def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, 
         norm_sym = normalize_symbol(sym_u)
         if sym_u not in acc_tickers and norm_sym not in acc_tickers:
             return False, ""
+    # 1.5 Harte Asset-Schranken
+    sym_u_check = str(sym).strip().upper()
+    norm_sym_check = normalize_symbol(sym_u_check)
+    
+    is_crypto_check = is_crypto_symbol(sym_u_check)
+    is_future_check = sym_u_check in CME_FUTURE_SYMBOLS or "=F" in norm_sym_check
+    is_forex_check = "=X" in norm_sym_check or "DX-Y" in norm_sym_check
+    is_equity_check = not is_crypto_check and not is_future_check and not is_forex_check
+    
+    if account_type == "apex":
+        apex_master_kader = ["NQ=F", "MNQ", "CL=F", "MCL"]
+        if sym_u_check not in apex_master_kader and norm_sym_check not in apex_master_kader:
+            return False, ""
+    if account_type == "ftmo" and not is_forex_check:
+        return False, ""
+    if is_equity_check and account_type != "private":
+        return False, ""
             
     # 2. Session-Check (Globalisiert - Kein Privatkonto-Bypass mehr)
     if dna and "session" in dna:
@@ -1565,6 +1590,18 @@ def run_watchlist_entry_screener():
 
             # Säule 8: Sofort-Flush (Transaktionale Persistenz) & Inbox-Producer
             if any_delivered:
+                routing_recs = []
+                for acc, a_type in matched_accounts:
+                    routing_recs.append({
+                        "name": acc.get("name", "Unbekannt"),
+                        "type": a_type,
+                        "profile": acc.get("exit_profile", "prop_guard")
+                    })
+                    
+                is_fut_fx = ("=F" in sym_u or "=X" in sym_u or "DX-Y" in sym_u or sym_u in CME_FUTURE_SYMBOLS)
+                ttl_seconds = 900 if is_fut_fx else 2700
+                expires_at = time.time() + ttl_seconds
+                
                 inbox_entry = {
                     "id": f"sig_{int(time.time())}_{sym_u}",
                     "timestamp": now.isoformat(),
@@ -1578,7 +1615,10 @@ def run_watchlist_entry_screener():
                     "max_limit_price": max_slip_price,
                     "sl_price": sl,
                     "tp_price": tp,
-                    "accounts": list(set(all_matched_account_names))
+                    "accounts": list(set(all_matched_account_names)),
+                    "routing_recommendations": routing_recs,
+                    "ttl_seconds": ttl_seconds,
+                    "expires_at": float(expires_at)
                 }
                 append_to_signal_inbox(inbox_entry)
                 
