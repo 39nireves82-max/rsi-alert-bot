@@ -485,20 +485,31 @@ def resolve_account_type(acc_key: str, acc: dict) -> str:
     return "private"
 
 
-def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, score: int, setup_type: str, now_dt, dna: dict) -> tuple[bool, str]:
+def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, score: int, setup_type: str, now_dt, dna: dict, stammkader_set: set = None) -> tuple[bool, str]:
     """5-Schranken Audit inkl. Whitelist (Säule 2 & 6)."""
     account_type = resolve_account_type(acc_key, acc)
     
-    # 1. Whitelist-Check
+    # 1. Whitelist-Check (Schließen der Wildcard-Falle für Prop, Weiche für Privat)
     acc_tickers = acc.get("tickers", [])
-    if acc_tickers and len(acc_tickers) > 0:
-        sym_u = str(sym).strip().upper()
-        norm_sym = normalize_symbol(sym_u)
+    sym_u = str(sym).strip().upper()
+    norm_sym = normalize_symbol(sym_u)
+    
+    if account_type in ["apex", "ftmo"]:
+        if not acc_tickers or len(acc_tickers) == 0:
+            return False, ""
         if sym_u not in acc_tickers and norm_sym not in acc_tickers:
             return False, ""
+    elif account_type == "private":
+        is_in_tickers = (sym_u in acc_tickers or norm_sym in acc_tickers)
+        is_in_stammkader = (stammkader_set is not None and (sym_u in stammkader_set or norm_sym in stammkader_set))
+        is_empty_tickers = (not acc_tickers or len(acc_tickers) == 0)
+        
+        if not (is_in_tickers or is_in_stammkader or is_empty_tickers):
+            return False, ""
+            
     # 1.5 Harte Asset-Schranken
-    sym_u_check = str(sym).strip().upper()
-    norm_sym_check = normalize_symbol(sym_u_check)
+    sym_u_check = sym_u
+    norm_sym_check = norm_sym
     
     is_crypto_check = is_crypto_symbol(sym_u_check)
     is_future_check = sym_u_check in CME_FUTURE_SYMBOLS or "=F" in norm_sym_check
@@ -509,10 +520,27 @@ def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, 
         apex_master_kader = ["NQ=F", "MNQ", "CL=F", "MCL"]
         if sym_u_check not in apex_master_kader and norm_sym_check not in apex_master_kader:
             return False, ""
-    if account_type == "ftmo" and not is_forex_check:
-        return False, ""
-    if is_equity_check and account_type != "private":
-        return False, ""
+    if account_type == "ftmo":
+        ftmo_forex_kader = ["EURUSD=X", "GBPUSD=X", "USDJPY=X"]
+        if not is_forex_check or (sym_u_check not in ftmo_forex_kader and norm_sym_check not in ftmo_forex_kader):
+            return False, ""
+            
+    if account_type == "private":
+        b_prof = str(acc.get("broker_profile", "")).lower()
+        if "bybit" in b_prof:
+            if not is_crypto_check:
+                return False, ""
+        elif "forex" in b_prof or "metatrader" in b_prof:
+            if not is_forex_check:
+                return False, ""
+        elif "interactive" in b_prof:
+            # Multi-Asset: Erlaubt Aktien und Futures (CL=F, GC=F), sperrt Forex
+            if is_forex_check:
+                return False, ""
+        elif "bitpanda" in b_prof or "flatex" in b_prof:
+            # Kassa-Broker: Sperrt Futures und Forex, erlaubt Aktien und Krypto
+            if is_future_check or is_forex_check:
+                return False, ""
             
     # 2. Session-Check (Globalisiert - Kein Privatkonto-Bypass mehr)
     if dna and "session" in dna:
@@ -1239,6 +1267,21 @@ def run_watchlist_entry_screener():
     is_weekend = now.weekday() >= 5
 
     # Schritt 1: Mandanten & Ticker einsammeln
+    mega_lists_dir = _resolve_dir("INVARIX_MEGA_LISTS_DIR", [
+        os.path.join(BASE_DIR, "mega_lists"),
+        os.path.join(PARENT_DIR, "RSI Bot", "mega_lists"),
+        "/app/mega_lists",
+        "/app/RSI Bot/mega_lists",
+    ])
+    stammkader_syms = set()
+    for cf in ['tech_giganten.json', 'nasdaq_top_picks.json', 'futures_cme.json', 'forex_majors.json', 'rohstoffe_edelmetalle.json']:
+        data = safe_load_json(os.path.join(mega_lists_dir, cf), default=[])
+        if isinstance(data, dict):
+            stammkader_syms.update({str(data.get("symbol", "")).strip().upper()}) if "symbol" in data else stammkader_syms.update({str(item.get("symbol", item) if isinstance(item, dict) else item).strip().upper() for v in data.values() if isinstance(v, list) for item in v})
+        elif isinstance(data, list):
+            stammkader_syms.update({str(item.get("symbol", item) if isinstance(item, dict) else item).strip().upper() for item in data})
+    stammkader_syms.discard("")
+
     user_tickers: dict[str, dict] = {}
     for user_folder in sorted(os.listdir(USERS_DIR)):
         user_dir = os.path.join(USERS_DIR, user_folder)
@@ -1266,11 +1309,28 @@ def run_watchlist_entry_screener():
                     if isinstance(acc_tickers, list):
                         l_t.extend([str(tk) for tk in acc_tickers if tk])
 
-        for t in set(w_t + p_t + l_t):
+        wl_tickers_raw = set(w_t + p_t + l_t)
+        esg = cfg.get("esg_blacklist", {})
+        esg_active = esg.get("aktiv", False)
+        esg_list = [str(x).strip().upper() for x in (esg.get("tickers") or esg.get("symbols") or [])]
+
+        combined_tickers = wl_tickers_raw.union(stammkader_syms)
+        for t_raw in combined_tickers:
+            t = str(t_raw).strip().upper()
+            if not t:
+                continue
+            if esg_active and t in esg_list:
+                continue
             if t not in user_tickers:
                 user_tickers[t] = {"tenants": []}
-            user_tickers[t]["tenants"].append({"username": user_folder, "chat_id": chat_id})
-
+            
+            exists = False
+            for tenant in user_tickers[t]["tenants"]:
+                if tenant["username"] == user_folder:
+                    exists = True
+                    break
+            if not exists:
+                user_tickers[t]["tenants"].append({"username": user_folder, "chat_id": chat_id})
     if not user_tickers:
         return
 
@@ -1293,6 +1353,21 @@ def run_watchlist_entry_screener():
         tz_str = dna.get("tz", "America/New_York")
         
         local_now = get_berlin_now() if tz_str == "Europe/Berlin" else get_ny_now()
+        berlin_now = get_berlin_now()
+        b_weekday = berlin_now.weekday()
+        b_time = berlin_now.time()
+
+        # High-Impact News Blackouts
+        if (sym_u in ENERGY_FUTURE_SYMBOLS or norm_sym in ENERGY_FUTURE_SYMBOLS):
+            if b_weekday == 2 and datetime.time(16, 20) <= b_time <= datetime.time(16, 45):
+                log(f"News-Blackout: EIA-Rohöllagerbestände sperrt {sym_u}")
+                continue
+                
+        is_index_fut = sym_u in ["NQ=F", "MNQ", "ES=F", "MES", "YM=F", "MYM", "RTY=F", "M2K"] or norm_sym in ["NQ=F", "ES=F", "YM=F", "RTY=F"]
+        if (is_index_fut or "=X" in norm_sym or "DX-Y" in norm_sym):
+            if b_weekday < 5 and datetime.time(14, 25) <= b_time <= datetime.time(14, 40):
+                log(f"News-Blackout: US-Wirtschaftsdaten sperrt {sym_u}")
+                continue
         
         if not is_crypto:
             # 1. Wochenend-Prüfung (So 17:00 ET bis Fr 17:00 ET für CME/Forex)
@@ -1504,7 +1579,8 @@ def run_watchlist_entry_screener():
                         score=score,
                         setup_type=setup_type,
                         now_dt=now,
-                        dna=dna
+                        dna=dna,
+                        stammkader_set=stammkader_syms
                     )
                     if is_valid:
                         matched_accounts.append((acc, a_type))
@@ -1523,7 +1599,25 @@ def run_watchlist_entry_screener():
                 header, account_badges = get_telegram_header_and_badges(matched_accounts, is_crypto, is_short)
                 accounts_str = "\n".join(account_badges)
                 
+                has_prop = any(a_type in ["apex", "ftmo"] and (sym_u in ["NQ=F", "MNQ", "CL=F", "MCL", "EURUSD=X", "GBPUSD=X", "USDJPY=X"] or norm_sym in ["NQ=F", "MNQ", "CL=F", "MCL", "EURUSD=X", "GBPUSD=X", "USDJPY=X"]) for acc, a_type in matched_accounts)
+                has_private = any(a_type == "private" for acc, a_type in matched_accounts)
+                
+                routing_blocks = []
+                if has_prop:
+                    routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [🏢 Prop-Desk (Apex / FTMO)]\n⚠️ <i>Streng limitiert auf freigegebenen Master-Kader</i>")
+                if has_private:
+                    routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [👤 Privates Depot]\nℹ️ <i>Freies Sizing nach Kontogröße & Risiko</i>")
+                if not routing_blocks:
+                    routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [Allgemein]")
+                    
+                routing_str = "\n\n".join(routing_blocks)
+                exec_mode_str = "⚡ <b>Ausführung:</b> 🟢 LIVE-AUTO aktiviert" if any(acc.get("execution_mode") == "LIVE_AUTO" for acc, a_type in matched_accounts) else "⚡ <b>Ausführung:</b> 🔵 Co-Pilot (Manuelle Orderaufgabe)"
+                limit_label = "Max. Kaufkurs" if not is_short else "Min. Verkaufskurs"
+
                 msg = f"""<b>{header} — {html.escape(display_name)}</b>
+
+{routing_str}
+{exec_mode_str}
 
 <b>Konten:</b>
 {accounts_str}
@@ -1534,7 +1628,7 @@ def run_watchlist_entry_screener():
 <b>Timeframe:</b> {tf}
 
 <b>Trigger-Kurs:</b> {format_price(c_p, sym_u)}
-🎯 <b>Max. Limit (CRV ≥ 1.25):</b> {format_price(max_slip_price, sym_u)}
+🎯 <b>{limit_label} (CRV ≥ 1.25):</b> {format_price(max_slip_price, sym_u)}
 🛑 <b>Stop-Loss:</b> {format_price(sl, sym_u)}
 🎯 <b>Take-Profit (+1.0 R):</b> {format_price(tp, sym_u)}
 
@@ -1778,7 +1872,7 @@ def run_tests():
         all_passed = False
 
     # 6. TEST: KONTO-AUDIT & DIRECTION-GATEKEEPER
-    test_acc_6 = {"direction": "long", "min_score": 70, "allowed_setups": ["A", "B"], "account_type": "apex"}
+    test_acc_6 = {"tickers": ["NQ=F"], "direction": "long", "min_score": 70, "allowed_setups": ["A", "B"], "account_type": "apex"}
     dna_mock = {"session": (0, 0, 23, 59)}
     now_mock = datetime.datetime.now()
     
@@ -1792,15 +1886,17 @@ def run_tests():
         log("[FAIL] Konto-Audit Schranken-Check (Richtung & Score)")
         all_passed = False
 
-    # 7. TEST: WHITELIST-SCHUTZ
+    # 7. TEST: WHITELIST-SCHUTZ & WILDCARD-FALLE
     test_acc_7 = {"tickers": ["NQ=F", "MNQ"], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "apex"}
+    test_acc_7_empty = {"tickers": [], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "apex"}
     res_7a, _ = audit_account_for_signal("test", test_acc_7, "CL=F", False, 100, "A", now_mock, dna_mock)
     res_7b, _ = audit_account_for_signal("test", test_acc_7, "NQ=F", False, 100, "A", now_mock, dna_mock)
+    res_7c, _ = audit_account_for_signal("test", test_acc_7_empty, "NQ=F", False, 100, "A", now_mock, dna_mock)
     
-    if not res_7a and res_7b:
-        log("[PASS] Whitelist-Schutz isoliert Konten-Ticker")
+    if not res_7a and res_7b and not res_7c:
+        log("[PASS] Whitelist-Schutz isoliert Konten-Ticker & blockiert Wildcard")
     else:
-        log("[FAIL] Whitelist-Schutz isoliert Konten-Ticker")
+        log("[FAIL] Whitelist-Schutz isoliert Konten-Ticker & blockiert Wildcard")
         all_passed = False
 
     # 8. TEST: EXECUTION-MODE & SPOOLER-QUEUE BRANDMAUER
@@ -2032,6 +2128,50 @@ def run_tests():
             log("[PASS] Klarnamen-Resolver & Autonomes 48h-Pruning")
         else:
             log(f"[FAIL] Klarnamen-Resolver & Autonomes 48h-Pruning (Resolver: {res_resolver}, Pruning: {res_pruning})")
+            all_passed = False
+
+        # 17. TEST: HIGH-IMPACT NEWS BLACKOUTS
+        try:
+            berlin_tz = zoneinfo.ZoneInfo("Europe/Berlin")
+        except Exception:
+            berlin_tz = datetime.timezone(datetime.timedelta(hours=1))
+            
+        dt_eia = datetime.datetime(2026, 10, 21, 16, 30, tzinfo=berlin_tz) 
+        dt_us_macro = datetime.datetime(2026, 10, 21, 14, 30, tzinfo=berlin_tz)
+        dt_safe = datetime.datetime(2026, 10, 21, 15, 0, tzinfo=berlin_tz)
+        
+        def is_news_blocked(sym, dt_mock):
+            b_weekday = dt_mock.weekday()
+            b_time = dt_mock.time()
+            if sym in ["CL=F", "MCL"]:
+                if b_weekday == 2 and datetime.time(16, 20) <= b_time <= datetime.time(16, 45):
+                    return True
+            if sym in ["NQ=F", "MNQ", "EURUSD=X"]:
+                if b_weekday < 5 and datetime.time(14, 25) <= b_time <= datetime.time(14, 40):
+                    return True
+            return False
+
+        if is_news_blocked("CL=F", dt_eia) and is_news_blocked("NQ=F", dt_us_macro) and not is_news_blocked("NQ=F", dt_safe):
+            log("[PASS] High-Impact News Blackouts (EIA & US-Makro)")
+        else:
+            log("[FAIL] High-Impact News Blackouts (EIA & US-Makro)")
+            all_passed = False
+
+        # 18. TEST: ASSET-WEICHE & BROKER-PROFILE
+        acc_bp = {"account_type": "private", "broker_profile": "Bitpanda Fusion (0.10% / 0.05%)", "tickers": ["ES=F", "BTC-USD", "NVDA"]}
+        acc_ib = {"account_type": "private", "broker_profile": "Interactive Brokers / Flatex", "tickers": ["CL=F", "AAPL"]}
+        
+        res_bp_es, _ = audit_account_for_signal("test", acc_bp, "ES=F", False, 100, "A", now_mock, dna_mock)
+        res_bp_btc, _ = audit_account_for_signal("test", acc_bp, "BTC-USD", False, 100, "A", now_mock, dna_mock)
+        res_bp_nvda, _ = audit_account_for_signal("test", acc_bp, "NVDA", False, 100, "A", now_mock, dna_mock)
+        
+        res_ib_cl, _ = audit_account_for_signal("test", acc_ib, "CL=F", False, 100, "A", now_mock, dna_mock)
+        res_ib_aapl, _ = audit_account_for_signal("test", acc_ib, "AAPL", False, 100, "A", now_mock, dna_mock)
+        
+        if not res_bp_es and res_bp_btc and res_bp_nvda and res_ib_cl and res_ib_aapl:
+            log("[PASS] Asset-Klassen-Weiche (Futures-Schutz & Multi-Asset Profile)")
+        else:
+            log("[FAIL] Asset-Klassen-Weiche (Futures-Schutz & Multi-Asset Profile)")
             all_passed = False
             
     finally:
