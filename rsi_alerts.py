@@ -1310,16 +1310,10 @@ def run_watchlist_entry_screener():
                         l_t.extend([str(tk) for tk in acc_tickers if tk])
 
         wl_tickers_raw = set(w_t + p_t + l_t)
-        esg = cfg.get("esg_blacklist", {})
-        esg_active = esg.get("aktiv", False)
-        esg_list = [str(x).strip().upper() for x in (esg.get("tickers") or esg.get("symbols") or [])]
-
         combined_tickers = wl_tickers_raw.union(stammkader_syms)
         for t_raw in combined_tickers:
             t = str(t_raw).strip().upper()
             if not t:
-                continue
-            if esg_active and t in esg_list:
                 continue
             if t not in user_tickers:
                 user_tickers[t] = {"tenants": []}
