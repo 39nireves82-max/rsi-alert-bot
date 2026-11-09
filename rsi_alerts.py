@@ -555,18 +555,16 @@ def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, 
     sym_u = str(sym).strip().upper()
     norm_sym = normalize_symbol(sym_u)
     
-    if account_type in ["apex", "ftmo"]:
-        if not acc_tickers or len(acc_tickers) == 0:
-            return False, ""
-        if sym_u not in acc_tickers and norm_sym not in acc_tickers:
-            return False, ""
-    elif account_type == "private":
-        is_in_tickers = (sym_u in acc_tickers or norm_sym in acc_tickers)
-        is_in_stammkader = (stammkader_set is not None and (sym_u in stammkader_set or norm_sym in stammkader_set))
-        is_empty_tickers = (not acc_tickers or len(acc_tickers) == 0)
+    # Poka-Yoke Wildcard-Schutz für ALLE Konten
+    if not acc_tickers or len(acc_tickers) == 0:
+        return False, ""
         
-        if not (is_in_tickers or is_in_stammkader or is_empty_tickers):
-            return False, ""
+    # Symmetrische Dual-Notation Whitelist
+    raw_tickers = {str(t).strip().upper() for t in acc_tickers if t}
+    norm_tickers = {normalize_symbol(t) for t in raw_tickers}
+    
+    if not (sym_u in raw_tickers or norm_sym in norm_tickers or norm_sym in raw_tickers or sym_u in norm_tickers):
+        return False, ""
             
     # 1.5 Harte Asset-Schranken
     sym_u_check = sym_u
@@ -588,6 +586,16 @@ def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, 
             
     if account_type == "private":
         b_prof = str(acc.get("broker_profile", "")).lower()
+        a_name = str(acc.get("name", "")).lower()
+        e_prof = str(acc.get("exit_profile", "")).lower()
+        
+        # 1. Rohstoff-Konto-Schutz
+        is_commodity_acc = any(term in text for term in ["rohstoff", "commodity"] for text in [b_prof, a_name, e_prof])
+        if is_commodity_acc:
+            allowed_com = ["CL=F", "MCL", "NG=F", "QG", "GC=F", "MGC", "SI=F", "SIL", "HG=F", "MHG"]
+            if sym_u_check not in allowed_com and norm_sym_check not in allowed_com:
+                return False, ""
+
         if "bybit" in b_prof:
             if not is_crypto_check:
                 return False, ""
@@ -2061,16 +2069,20 @@ def run_tests():
         all_passed = False
 
     # 7. TEST: WHITELIST-SCHUTZ & WILDCARD-FALLE
-    test_acc_7 = {"tickers": ["NQ=F", "MNQ"], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "apex"}
-    test_acc_7_empty = {"tickers": [], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "apex"}
-    res_7a, _ = audit_account_for_signal("test", test_acc_7, "CL=F", False, 100, "A", now_mock, dna_mock)
-    res_7b, _ = audit_account_for_signal("test", test_acc_7, "NQ=F", False, 100, "A", now_mock, dna_mock)
-    res_7c, _ = audit_account_for_signal("test", test_acc_7_empty, "NQ=F", False, 100, "A", now_mock, dna_mock)
+    test_acc_7_a1 = {"tickers": ["MNQ"], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "apex"}
+    test_acc_7_a2 = {"tickers": ["NQ=F"], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "apex"}
+    test_acc_7_empty = {"tickers": [], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "private"}
+    test_acc_7_roh = {"name": "Privatkonto Rohstoffrunner", "tickers": ["CL=F", "GC=F"], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "private"}
     
-    if not res_7a and res_7b and not res_7c:
-        log("[PASS] Whitelist-Schutz isoliert Konten-Ticker & blockiert Wildcard")
+    res_7a, _ = audit_account_for_signal("test", test_acc_7_a1, "NQ=F", False, 100, "A", now_mock, dna_mock)
+    res_7b, _ = audit_account_for_signal("test", test_acc_7_a2, "MNQ", False, 100, "A", now_mock, dna_mock)
+    res_7c, _ = audit_account_for_signal("test", test_acc_7_empty, "NQ=F", False, 100, "A", now_mock, dna_mock)
+    res_7d, _ = audit_account_for_signal("test", test_acc_7_roh, "NQ=F", False, 100, "A", now_mock, dna_mock)
+    
+    if res_7a and res_7b and not res_7c and not res_7d:
+        log("[PASS] Whitelist-Schutz (Symmetrische Dual-Notation, Rohstoff-Sperre & Poka-Yoke)")
     else:
-        log("[FAIL] Whitelist-Schutz isoliert Konten-Ticker & blockiert Wildcard")
+        log(f"[FAIL] Whitelist-Schutz (7a:{res_7a} 7b:{res_7b} 7c:{res_7c} 7d:{res_7d})")
         all_passed = False
 
     # 8. TEST: EXECUTION-MODE & SPOOLER-QUEUE BRANDMAUER
