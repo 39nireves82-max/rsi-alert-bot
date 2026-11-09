@@ -128,6 +128,67 @@ def get_ny_now() -> datetime.datetime:
         offset = -4 if 3 <= utc_now.month <= 11 else -5
         return utc_now.astimezone(datetime.timezone(datetime.timedelta(hours=offset)))
 
+def is_cme_early_close_day(ny_date: datetime.date) -> bool:
+    """Prüft, ob der übergebene Tag ein verkürzter CME-Handelstag (Early Close 13:00 ET) ist (Auflage 2)."""
+    month, day = ny_date.month, ny_date.day
+    
+    # Heiligabend (24. Dez), falls Werktag
+    if month == 12 and day == 24 and ny_date.weekday() < 5:
+        return True
+        
+    # Tag vor Independence Day (3. Juli), falls Werktag
+    if month == 7 and day == 3 and ny_date.weekday() < 5:
+        return True
+        
+    # Black Friday (Tag nach Thanksgiving - 4. Donnerstag im Nov)
+    if month == 11 and ny_date.weekday() == 4 and 23 <= day <= 29:
+        return True
+        
+    # Erweiterbar über externe Konfiguration, falls gewünscht
+    return False
+
+def is_in_entry_blackout(sym: str, account_type: str, ny_dt: datetime.datetime, berlin_dt: datetime.datetime) -> tuple[bool, str]:
+    """Prüft Re-Entry Locks für News und Session-Enden (Auflage 3)."""
+    sym_u = str(sym).strip().upper()
+    norm_sym = normalize_symbol(sym_u)
+    is_index_fut = sym_u in ["NQ=F", "MNQ", "ES=F", "MES", "YM=F", "MYM", "RTY=F", "M2K"] or norm_sym in ["NQ=F", "ES=F", "YM=F", "RTY=F"]
+    is_energy = sym_u in ["CL=F", "MCL", "NG=F", "QG"] or norm_sym in ["CL=F", "NG=F"]
+    is_forex = "=X" in norm_sym or "DX-Y" in norm_sym
+    
+    ny_time = ny_dt.time()
+    b_time = berlin_dt.time()
+    is_ny_weekday = ny_dt.weekday() < 5
+    
+    # 1. US-Makro (Mo-Fr 08:25 - 08:40 ET) für Indizes & Forex
+    if (is_index_fut or is_forex) and is_ny_weekday:
+        if datetime.time(8, 25) <= ny_time <= datetime.time(8, 40):
+            return True, "US_MACRO_BLACKOUT"
+            
+    # 2. EIA Rohöl (Mittwoch 10:15 - 10:45 ET) für Energie
+    if is_energy and ny_dt.weekday() == 2:
+        if datetime.time(10, 15) <= ny_time <= datetime.time(10, 45):
+            return True, "EIA_NEWS_BLACKOUT"
+            
+    # 3. Apex EOD Re-Entry Sperre
+    if account_type == "apex" and is_ny_weekday:
+        is_early_close = is_cme_early_close_day(ny_dt.date())
+        
+        if is_early_close and datetime.time(12, 40) <= ny_time <= datetime.time(17, 0):
+            return True, "APEX_EARLY_CLOSE_BLACKOUT"
+            
+        if is_energy and datetime.time(14, 15) <= ny_time <= datetime.time(18, 0):
+            return True, "APEX_ENERGY_EOD_BLACKOUT"
+            
+        if is_index_fut and datetime.time(16, 45) <= ny_time <= datetime.time(18, 0):
+            return True, "APEX_INDEX_EOD_BLACKOUT"
+            
+    # 4. FTMO Weekend Re-Entry Sperre
+    if account_type == "ftmo" and berlin_dt.weekday() == 4:
+        if b_time >= datetime.time(21, 15):
+            return True, "FTMO_WEEKEND_BLACKOUT"
+            
+    return False, ""
+
 
 @contextmanager
 def file_lock(lock_path: str, timeout: float = 5.0):
@@ -541,6 +602,13 @@ def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, 
             # Kassa-Broker: Sperrt Futures und Forex, erlaubt Aktien und Krypto
             if is_future_check or is_forex_check:
                 return False, ""
+
+    # 1.8 Re-Entry Blackout Guard (Auflage 3)
+    ny_local = get_ny_now()
+    berlin_local = get_berlin_now()
+    is_blocked, block_reason = is_in_entry_blackout(sym, account_type, ny_local, berlin_local)
+    if is_blocked:
+        return False, ""
             
     # 2. Session-Check (Globalisiert - Kein Privatkonto-Bypass mehr)
     if dna and "session" in dna:
@@ -803,11 +871,21 @@ def check_open_trades(user_dir: str):
 
         sym_upper = sym.upper()
         norm_sym = normalize_symbol(sym_upper)
-        is_apex_acc = (
-            (str(exit_mode).upper() == "TARGET_LOCKED")
-            or ("apex" in acc_name_raw.lower())
-            or (exit_profile in ["apex_lock", "apex_commodity_scale"])
-        )
+        
+        # 1. Account deterministisch auflösen VOR Auswertung der Flags
+        matched_acc = None
+        matched_acc_id = ""
+        for a_id, a_dict in config.get("lab_accounts", {}).items():
+            if isinstance(a_dict, dict) and a_dict.get("name") == acc_name_raw:
+                matched_acc = a_dict
+                matched_acc_id = a_id
+                break
+                
+        acc_type = resolve_account_type(matched_acc_id, matched_acc) if matched_acc else ("apex" if "apex" in acc_name_raw.lower() else ("ftmo" if "ftmo" in acc_name_raw.lower() else "private"))
+        
+        is_apex_acc = (acc_type == "apex") or ("apex" in acc_name_raw.lower()) or (exit_profile in ["apex_lock", "apex_commodity_scale"])
+        is_ftmo_acc = (acc_type == "ftmo") or ("ftmo" in acc_name_raw.lower())
+
         is_cme_future = (
             ("=F" in norm_sym)
             or (sym_upper in CME_FUTURE_SYMBOLS)
@@ -815,29 +893,146 @@ def check_open_trades(user_dir: str):
         )
         is_energy = (sym_upper in ENERGY_FUTURE_SYMBOLS) or (norm_sym in ENERGY_FUTURE_SYMBOLS)
 
-        # Werktags EOD-Auto-Close Fenster (New York ET)
+        # Werktags EOD-Auto-Close Fenster (New York ET & Berlin MEZ - Auflage 1 & 2)
         ny_dt = get_ny_now()
         ny_time = ny_dt.time()
         is_ny_weekday = ny_dt.weekday() < 5
-        trigger_auto_close = False
         
-        if is_apex_acc and is_cme_future and is_ny_weekday:
-            if is_energy and datetime.time(14, 20) <= ny_time <= datetime.time(14, 30):
-                trigger_auto_close = True
-            elif not is_energy and datetime.time(16, 50) <= ny_time <= datetime.time(16, 58):
-                trigger_auto_close = True
+        berlin_dt = get_berlin_now()
+        b_time = berlin_dt.time()
 
+        trigger_auto_close = False
+        reason_str = "HARD_FLATTEN"
+        
+        is_early_close = is_cme_early_close_day(ny_dt.date())
+
+        # 1. Apex Rohöl (CL=F, MCL, NG=F, QG)
+        if is_apex_acc and is_energy and is_ny_weekday:
+            if is_early_close and datetime.time(12, 45) <= ny_time <= datetime.time(12, 55):
+                trigger_auto_close = True
+                reason_str = "EOD_Close (Apex-Öl Early)"
+            elif ny_dt.weekday() == 2 and datetime.time(10, 15) <= ny_time <= datetime.time(10, 30):
+                trigger_auto_close = True
+                reason_str = "EIA_Event_Shield"
+            elif not is_early_close and datetime.time(14, 20) <= ny_time <= datetime.time(14, 28):
+                trigger_auto_close = True
+                reason_str = "EOD_Close (Apex-Öl)"
+                
+        # 2. Apex Indizes (NQ=F, MNQ, ES=F, MES, YM=F, MYM, RTY=F, M2K)
+        elif is_apex_acc and is_cme_future and not is_energy and is_ny_weekday:
+            if is_early_close and datetime.time(12, 45) <= ny_time <= datetime.time(12, 58):
+                trigger_auto_close = True
+                reason_str = "EOD_Close (Apex Early)"
+            elif ny_dt.weekday() == 4 and not is_early_close and datetime.time(16, 40) <= ny_time <= datetime.time(16, 48):
+                trigger_auto_close = True
+                reason_str = "Weekend_Close (Apex-Freitag)"
+            elif not is_early_close and datetime.time(16, 50) <= ny_time <= datetime.time(16, 58):
+                trigger_auto_close = True
+                reason_str = "EOD_Close (Apex-Wartung)"
+
+        # 3. FTMO Devisen (Freitags-Wochenendschluss MEZ)
+        if is_ftmo_acc and berlin_dt.weekday() == 4:
+            if datetime.time(21, 30) <= b_time <= datetime.time(21, 55):
+                trigger_auto_close = True
+                reason_str = "Weekend_Close (FTMO)"
+
+        # --- ZWEISTUFIGER IDEMPOTENZ- & SPOOLER-RIEGEL FÜR FLATTEN_POSITION ---
+        if trigger_auto_close:
+            if matched_acc and matched_acc.get("execution_mode") == "LIVE_AUTO":
+                if acc_type in ["apex", "ftmo"]:
+                    # Pfad A: LIVE_AUTO (Physisches Spooling statt CSV-Phantom-Close)
+                    username = os.path.basename(os.path.normpath(user_dir))
+                    
+                    # Idempotenz Stufe 1: File-Check (In-Flight-Schutz)
+                    spool_skip = False
+                    for s_dir in [PENDING_SIGNALS_DIR, PROCESSING_SIGNALS_DIR]:
+                        if os.path.exists(s_dir):
+                            for f_name in os.listdir(s_dir):
+                                if f"sig_flatten_" in f_name and t_id in f_name:
+                                    spool_skip = True
+                                    break
+                        if spool_skip: break
+
+                    # Idempotenz Stufe 2: 120s Cooldown
+                    cooldown_key = f"flatten_spool_ts_{t_id}"
+                    last_spool = alert_state.get(cooldown_key, 0.0)
+                    if (time.time() - last_spool) < 120:
+                        spool_skip = True
+
+                    if not spool_skip:
+                        curr_price_flat = get_current_price(sym)
+                        broker_acc = matched_acc.get("broker_account", "AUTO_ROUTED")
+                        ts_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                        
+                        flat_payload = {
+                            "action": "FLATTEN_POSITION",
+                            "trade_id": t_id,
+                            "symbol": sym,
+                            "instrument": sym,
+                            "account_id": broker_acc,
+                            "lab_account_id": matched_acc_id,
+                            "account_name": acc_name_raw,
+                            "account_type": acc_type,
+                            "direction": direction,
+                            "exit_reason": reason_str,
+                            "current_price": curr_price_flat,
+                            "timestamp": ts_iso,
+                            "username": username
+                        }
+                        
+                        flat_filename = f"sig_flatten_{int(time.time())}_{username}_{t_id}.json"
+                        flat_file = os.path.join(PENDING_SIGNALS_DIR, flat_filename)
+                        
+                        if atomic_write_json(flat_file, flat_payload):
+                            alert_state[cooldown_key] = time.time()
+                            atomic_write_json(alert_state_file, alert_state)
+                            log(f"[{berlin_dt.strftime('%H:%M:%S')}] ✅ HARD-FLATTEN gespoolt: {sym} ({acc_name_raw}) -> Grund: {reason_str}")
+
+                    # Telegram-Alarm (Einmalig pro Tag)
+                    flatten_alert_key = f"{t_id}_flatten_alert_{ny_dt.strftime('%Y%m%d')}"
+                    if not alert_state.get(flatten_alert_key):
+                        alerts.append((
+                            flatten_alert_key,
+                            f"🛑 <b>AUTO-FLATTEN GESPOULT: {html.escape(display_name)} ({acc_name})</b>\n"
+                            f"• Grund: {reason_str}\n"
+                            f"• Signal zur physischen Glattstellung an Executor übergeben."
+                        ))
+                    
+                    # WICHTIG: Zwingender Bypass! Überspringt Break-Even- & SL/TP-Logik für diesen Trade
+                    continue
+
+            # Pfad B: Manuelle Konten (Phantom Close)
+            curr_price_man = get_current_price(sym)
+            if curr_price_man <= 0:
+                curr_price_man = entry_price # Fallback
+                
+            raw_pnl = (curr_price_man - entry_price) * position_size * pt_val * dir_m
+            pnl_eur = (raw_pnl * fx) - est_fees
+            pnl_pct = ((curr_price_man / entry_price) - 1.0) * 100.0 * dir_m if entry_price > 0 else 0.0
+            r_mult = (pnl_eur / planned_risk_eur) if planned_risk_eur > 0 else 0.0
+
+            pending_closures[t_id] = {
+                "status": "CLOSED",
+                "exit_price": round_to_tick(curr_price_man, sym),
+                "exit_date": berlin_dt.strftime("%d/%m/%Y %H:%M"),
+                "exit_reason": f"{reason_str} (Manual / Phantom)",
+                "pnl_eur": round(pnl_eur, 2),
+                "pnl_pct": round(pnl_pct, 2),
+                "r_multiple": round(r_mult, 2),
+                "current_risk_eur": 0.0,
+            }
+
+            eod_auto_key = f"{t_id}_eod_auto_close"
+            if not alert_state.get(eod_auto_key):
+                alerts.append((
+                    eod_auto_key,
+                    f"🛑 AUTO-CLOSE: Position {html.escape(display_name)} wurde zum Schutz vor Übernacht-Regelbrüchen automatisch im Journal geschlossen!"
+                ))
+            continue
+
+        # --- AB HIER NORMALER VERLAUF (KEIN EOD) ---
         curr_price = get_current_price(sym)
         if curr_price <= 0:
-            if trigger_auto_close:
-                err_key = f"{t_id}_eod_price_fail_{now_dt.strftime('%Y%m%d')}"
-                if not alert_state.get(err_key):
-                    alerts.append((
-                        err_key,
-                        f"🚨 <b>KRITISCHER EOD-FEHLER: {html.escape(display_name)} ({acc_name})</b>\n"
-                        f"• Live-Kurs nicht abrufbar (0.0) während des Apex-EOD-Schließfensters!\n"
-                        f"• Aktion: Position SOFORT manuell im Broker prüfen und schließen!"
-                    ))
             continue
 
         # Initial-Risiko pro Einheit rekonstruieren
@@ -854,32 +1049,6 @@ def check_open_trades(user_dir: str):
 
         profit_per_share = (curr_price - entry_price) * dir_m
         current_r = (profit_per_share / risk_per_share) if risk_per_share > 0 else 0.0
-
-        # --- EOD-AUTO-CLOSE FÜR APEX-FUTURES DIREKT IM JOURNAL ---
-        if trigger_auto_close:
-            raw_pnl = (curr_price - entry_price) * position_size * pt_val * dir_m
-            pnl_eur = (raw_pnl * fx) - est_fees
-            pnl_pct = ((curr_price / entry_price) - 1.0) * 100.0 * dir_m if entry_price > 0 else 0.0
-            r_mult = (pnl_eur / planned_risk_eur) if planned_risk_eur > 0 else current_r
-
-            pending_closures[t_id] = {
-                "status": "CLOSED",
-                "exit_price": round_to_tick(curr_price, sym),
-                "exit_date": now_dt.strftime("%d/%m/%Y %H:%M"),
-                "exit_reason": "EOD_Close (Apex-Schutz)",
-                "pnl_eur": round(pnl_eur, 2),
-                "pnl_pct": round(pnl_pct, 2),
-                "r_multiple": round(r_mult, 2),
-                "current_risk_eur": 0.0,
-            }
-
-            eod_auto_key = f"{t_id}_eod_auto_close"
-            if not alert_state.get(eod_auto_key):
-                alerts.append((
-                    eod_auto_key,
-                    f"🛑 AUTO-CLOSE: Position {html.escape(display_name)} wurde zum Schutz vor Übernacht-Regelbrüchen automatisch im Journal geschlossen!"
-                ))
-            continue
 
         # 0) Exit-Erkennung (SL / TP) — greift auch bei Break-Even-Stop
         if active_sl > 0:
@@ -1312,9 +1481,13 @@ def run_watchlist_entry_screener():
         wl_tickers_raw = set(w_t + p_t + l_t)
         combined_tickers = wl_tickers_raw.union(stammkader_syms)
         for t_raw in combined_tickers:
-            t = str(t_raw).strip().upper()
-            if not t:
+            t_orig = str(t_raw).strip().upper()
+            if not t_orig:
                 continue
+            
+            # Alias-Deduplizierung (Auflage 5)
+            t = normalize_symbol(t_orig)
+            
             if t not in user_tickers:
                 user_tickers[t] = {"tenants": []}
             
@@ -1333,6 +1506,7 @@ def run_watchlist_entry_screener():
     state_modified = False
 
     # Schritt 2 & 3: Session-Guard & Rate-Limit-Schutz
+    active_tickers_for_download = {}
     for ticker, data in user_tickers.items():
         tenants = data["tenants"]
         sym_u = str(ticker).strip().upper()
@@ -1348,20 +1522,11 @@ def run_watchlist_entry_screener():
         
         local_now = get_berlin_now() if tz_str == "Europe/Berlin" else get_ny_now()
         berlin_now = get_berlin_now()
-        b_weekday = berlin_now.weekday()
-        b_time = berlin_now.time()
-
-        # High-Impact News Blackouts
-        if (sym_u in ENERGY_FUTURE_SYMBOLS or norm_sym in ENERGY_FUTURE_SYMBOLS):
-            if b_weekday == 2 and datetime.time(16, 20) <= b_time <= datetime.time(16, 45):
-                log(f"News-Blackout: EIA-Rohöllagerbestände sperrt {sym_u}")
-                continue
-                
-        is_index_fut = sym_u in ["NQ=F", "MNQ", "ES=F", "MES", "YM=F", "MYM", "RTY=F", "M2K"] or norm_sym in ["NQ=F", "ES=F", "YM=F", "RTY=F"]
-        if (is_index_fut or "=X" in norm_sym or "DX-Y" in norm_sym):
-            if b_weekday < 5 and datetime.time(14, 25) <= b_time <= datetime.time(14, 40):
-                log(f"News-Blackout: US-Wirtschaftsdaten sperrt {sym_u}")
-                continue
+        
+        # News Blackout & Re-Entry Guard überspringt yfinance-Download
+        is_blocked, _ = is_in_entry_blackout(sym_u, "apex", get_ny_now(), get_berlin_now())
+        if is_blocked:
+            continue
         
         if not is_crypto:
             # 1. Wochenend-Prüfung (So 17:00 ET bis Fr 17:00 ET für CME/Forex)
@@ -1397,8 +1562,23 @@ def run_watchlist_entry_screener():
             continue
         if tf == "4h" and (now_utc.hour % 4 != 0 or now_utc.minute > 4):
             continue
+            
+        active_tickers_for_download[ticker] = data
+        
+    if not active_tickers_for_download:
+        return
 
-        # Schritt 4: Kurs- & Indikatoren-Berechnung (nutzt normalisiertes Symbol für yfinance)
+    # Schritt 4: Kurs- & Indikatoren-Berechnung (nutzt normalisiertes Symbol für yfinance)
+    for ticker, data in active_tickers_for_download.items():
+        tenants = data["tenants"]
+        sym_u = str(ticker).strip().upper()
+        norm_sym = normalize_symbol(sym_u)
+        is_crypto = is_crypto_symbol(sym_u)
+        dna = resolve_asset_dna(sym_u)
+        tf = dna["tf"]
+        min_score = dna["min_score"]
+        allowed_setups = dna["allowed_setups"]
+        
         try:
             df = yf.download([norm_sym], period="1y", interval="1h", progress=False, timeout=10)
             if isinstance(df.columns, pd.MultiIndex):
@@ -2017,164 +2197,239 @@ def run_tests():
         else:
             log(f"[FAIL] Autonomes Stop-Loss Spooling (File: {has_file}, BE: {t12_correct_be}, NoDup: {t12_no_dup})")
             all_passed = False
-        # 13. TEST: TP-BEFREIUNG FÜR RUNNER-PROFILE
-        t13_exit_mode = "HOME_RUN_TREND"
-        t13_tp_price = 0.0
-        t13_is_runner = t13_exit_mode in ["ALPHA_CASHFLOW", "HOME_RUN_TREND", "private_alpha"]
-        t13_has_valid_tp = (0 < t13_tp_price < 900000)
-        t13_alert_triggered = False
-        if t13_has_valid_tp and not t13_is_runner:
-            t13_alert_triggered = True
-            
-        if not t13_alert_triggered:
-            log("[PASS] TP-Befreiung für Runner-Profile (Kein Alarm bei TP=0.0 / Runner)")
-        else:
-            log("[FAIL] TP-Befreiung für Runner-Profile")
-            all_passed = False
 
-        # 14. TEST: CME GLOBEX WARTUNGSFENSTER (17:00 - 18:00 ET)
-        try:
-            ny_tz_14 = zoneinfo.ZoneInfo("America/New_York")
-        except:
-            ny_tz_14 = datetime.timezone(datetime.timedelta(hours=-4))
-        
-        t14_dt = datetime.datetime(2026, 10, 21, 17, 30, tzinfo=ny_tz_14) # Mittwoch
-        t14_curr_min = t14_dt.hour * 60 + t14_dt.minute
-        t14_blocked = False
-        
-        if t14_dt.weekday() in [0, 1, 2, 3]:
-            if 17 * 60 <= t14_curr_min < 18 * 60:
-                t14_blocked = True
-                    
-        if t14_blocked:
-            log("[PASS] CME Globex Wartungsfenster (Sperre 17:00-18:00 ET greift)")
-        else:
-            log("[FAIL] CME Globex Wartungsfenster")
-            all_passed = False
-
-        # 15. TEST: HIERARCHISCHER ALARM-FILTER BEI KURSSPRÜNGEN
-        t15_current_r = 3.2
-        t15_highest_alert_triggered = False
-        t15_alerts = []
-        t15_alert_state = {}
-        
-        if t15_current_r >= 3.0:
-            if not t15_highest_alert_triggered:
-                t15_alerts.append("CLIMAX")
-                t15_highest_alert_triggered = True
-            else:
-                t15_alert_state["r30"] = True
-                
-        if t15_current_r >= 2.5:
-            if not t15_highest_alert_triggered:
-                t15_alerts.append("GEWINNSICHERUNG")
-                t15_highest_alert_triggered = True
-            else:
-                t15_alert_state["r25"] = True
-                
-        if t15_current_r >= 1.5:
-            if not t15_highest_alert_triggered:
-                t15_alerts.append("TRAIL")
-                t15_highest_alert_triggered = True
-            else:
-                t15_alert_state["trail"] = True
-
-        if len(t15_alerts) == 1 and t15_alerts[0] == "CLIMAX" and t15_alert_state.get("r25") and t15_alert_state.get("trail"):
-            log("[PASS] Hierarchischer Alarm-Filter (Nur 1 Alarm gesendet, Rest markiert)")
-        else:
-            log(f"[FAIL] Hierarchischer Alarm-Filter (Alarme: {t15_alerts}, State: {t15_alert_state})")
-            all_passed = False
-        # 16. TEST: KLARNAMEN-ERZWINGUNG & 48H-PRUNING
-        # A) Name Resolver
-        mock_cfg = {"tickers": [{"symbol": "PWR", "name": "Quanta Services"}]}
-        name_1 = resolve_ticker_name("NQ=F")
-        name_2 = resolve_ticker_name("PWR", mock_cfg)
-        name_3 = resolve_ticker_name("UNKNOWN", mock_cfg)
-        res_resolver = (name_1 == "Nasdaq 100" and name_2 == "Quanta Services" and name_3 == "UNKNOWN")
-        
-        # B) Pruning
-        with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as tmp:
-            t16_file = tmp.name
-            now_ts = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-            ts_50h = now_ts - (50 * 3600)
-            ts_2h = now_ts - (2 * 3600)
-            mock_state = {
-                "dismissed_signals": [f"sig_{ts_50h}_A", f"sig_{ts_2h}_B", "invalid_id"],
-                "consumed_signals": {f"sig_{ts_50h}_C": ["acc1"], f"sig_{ts_2h}_D": ["acc2"]}
-            }
-            json.dump(mock_state, tmp)
-        
-        try:
-            prune_alert_state(t16_file)
-            with open(t16_file, "r") as f: pruned = json.load(f)
-            
-            res_pruning = (
-                f"sig_{ts_50h}_A" not in pruned["dismissed_signals"] and
-                f"sig_{ts_2h}_B" in pruned["dismissed_signals"] and
-                "invalid_id" in pruned["dismissed_signals"] and
-                f"sig_{ts_50h}_C" not in pruned["consumed_signals"] and
-                f"sig_{ts_2h}_D" in pruned["consumed_signals"]
-            )
-        finally:
-            os.remove(t16_file)
-
-        if res_resolver and res_pruning:
-            log("[PASS] Klarnamen-Resolver & Autonomes 48h-Pruning")
-        else:
-            log(f"[FAIL] Klarnamen-Resolver & Autonomes 48h-Pruning (Resolver: {res_resolver}, Pruning: {res_pruning})")
-            all_passed = False
-
-        # 17. TEST: HIGH-IMPACT NEWS BLACKOUTS
-        try:
-            berlin_tz = zoneinfo.ZoneInfo("Europe/Berlin")
-        except Exception:
-            berlin_tz = datetime.timezone(datetime.timedelta(hours=1))
-            
-        dt_eia = datetime.datetime(2026, 10, 21, 16, 30, tzinfo=berlin_tz) 
-        dt_us_macro = datetime.datetime(2026, 10, 21, 14, 30, tzinfo=berlin_tz)
-        dt_safe = datetime.datetime(2026, 10, 21, 15, 0, tzinfo=berlin_tz)
-        
-        def is_news_blocked(sym, dt_mock):
-            b_weekday = dt_mock.weekday()
-            b_time = dt_mock.time()
-            if sym in ["CL=F", "MCL"]:
-                if b_weekday == 2 and datetime.time(16, 20) <= b_time <= datetime.time(16, 45):
-                    return True
-            if sym in ["NQ=F", "MNQ", "EURUSD=X"]:
-                if b_weekday < 5 and datetime.time(14, 25) <= b_time <= datetime.time(14, 40):
-                    return True
-            return False
-
-        if is_news_blocked("CL=F", dt_eia) and is_news_blocked("NQ=F", dt_us_macro) and not is_news_blocked("NQ=F", dt_safe):
-            log("[PASS] High-Impact News Blackouts (EIA & US-Makro)")
-        else:
-            log("[FAIL] High-Impact News Blackouts (EIA & US-Makro)")
-            all_passed = False
-
-        # 18. TEST: ASSET-WEICHE & BROKER-PROFILE
-        acc_bp = {"account_type": "private", "broker_profile": "Bitpanda Fusion (0.10% / 0.05%)", "tickers": ["ES=F", "BTC-USD", "NVDA"]}
-        acc_ib = {"account_type": "private", "broker_profile": "Interactive Brokers / Flatex", "tickers": ["CL=F", "AAPL"]}
-        
-        res_bp_es, _ = audit_account_for_signal("test", acc_bp, "ES=F", False, 100, "A", now_mock, dna_mock)
-        res_bp_btc, _ = audit_account_for_signal("test", acc_bp, "BTC-USD", False, 100, "A", now_mock, dna_mock)
-        res_bp_nvda, _ = audit_account_for_signal("test", acc_bp, "NVDA", False, 100, "A", now_mock, dna_mock)
-        
-        res_ib_cl, _ = audit_account_for_signal("test", acc_ib, "CL=F", False, 100, "A", now_mock, dna_mock)
-        res_ib_aapl, _ = audit_account_for_signal("test", acc_ib, "AAPL", False, 100, "A", now_mock, dna_mock)
-        
-        if not res_bp_es and res_bp_btc and res_bp_nvda and res_ib_cl and res_ib_aapl:
-            log("[PASS] Asset-Klassen-Weiche (Futures-Schutz & Multi-Asset Profile)")
-        else:
-            log("[FAIL] Asset-Klassen-Weiche (Futures-Schutz & Multi-Asset Profile)")
-            all_passed = False
-            
     finally:
-        if old_get_price:
+        if 'old_get_price' in locals() and old_get_price:
             globals()['get_current_price'] = old_get_price
         PENDING_SIGNALS_DIR = old_pending
         PROCESSING_SIGNALS_DIR = old_processing
         import shutil
         shutil.rmtree(t12_user_dir, ignore_errors=True)
+
+    # 13. TEST: TP-BEFREIUNG FÜR RUNNER-PROFILE
+    t13_exit_mode = "HOME_RUN_TREND"
+    t13_tp_price = 0.0
+    t13_is_runner = t13_exit_mode in ["ALPHA_CASHFLOW", "HOME_RUN_TREND", "private_alpha"]
+    t13_has_valid_tp = (0 < t13_tp_price < 900000)
+    t13_alert_triggered = False
+    if t13_has_valid_tp and not t13_is_runner:
+        t13_alert_triggered = True
+        
+    if not t13_alert_triggered:
+        log("[PASS] TP-Befreiung für Runner-Profile (Kein Alarm bei TP=0.0 / Runner)")
+    else:
+        log("[FAIL] TP-Befreiung für Runner-Profile")
+        all_passed = False
+
+    # 14. TEST: CME GLOBEX WARTUNGSFENSTER (17:00 - 18:00 ET)
+    try:
+        ny_tz_14 = zoneinfo.ZoneInfo("America/New_York")
+    except:
+        ny_tz_14 = datetime.timezone(datetime.timedelta(hours=-4))
+    
+    t14_dt = datetime.datetime(2026, 10, 21, 17, 30, tzinfo=ny_tz_14) # Mittwoch
+    t14_curr_min = t14_dt.hour * 60 + t14_dt.minute
+    t14_blocked = False
+    
+    if t14_dt.weekday() in [0, 1, 2, 3]:
+        if 17 * 60 <= t14_curr_min < 18 * 60:
+            t14_blocked = True
+                
+    if t14_blocked:
+        log("[PASS] CME Globex Wartungsfenster (Sperre 17:00-18:00 ET greift)")
+    else:
+        log("[FAIL] CME Globex Wartungsfenster")
+        all_passed = False
+
+    # 15. TEST: HIERARCHISCHER ALARM-FILTER BEI KURSSPRÜNGEN
+    t15_current_r = 3.2
+    t15_highest_alert_triggered = False
+    t15_alerts = []
+    t15_alert_state = {}
+    
+    if t15_current_r >= 3.0:
+        if not t15_highest_alert_triggered:
+            t15_alerts.append("CLIMAX")
+            t15_highest_alert_triggered = True
+        else:
+            t15_alert_state["r30"] = True
+            
+    if t15_current_r >= 2.5:
+        if not t15_highest_alert_triggered:
+            t15_alerts.append("GEWINNSICHERUNG")
+            t15_highest_alert_triggered = True
+        else:
+            t15_alert_state["r25"] = True
+            
+    if t15_current_r >= 1.5:
+        if not t15_highest_alert_triggered:
+            t15_alerts.append("TRAIL")
+            t15_highest_alert_triggered = True
+        else:
+            t15_alert_state["trail"] = True
+
+    if len(t15_alerts) == 1 and t15_alerts[0] == "CLIMAX" and t15_alert_state.get("r25") and t15_alert_state.get("trail"):
+        log("[PASS] Hierarchischer Alarm-Filter (Nur 1 Alarm gesendet, Rest markiert)")
+    else:
+        log(f"[FAIL] Hierarchischer Alarm-Filter (Alarme: {t15_alerts}, State: {t15_alert_state})")
+        all_passed = False
+
+    # 16. TEST: KLARNAMEN-ERZWINGUNG & 48H-PRUNING
+    mock_cfg = {"tickers": [{"symbol": "PWR", "name": "Quanta Services"}]}
+    name_1 = resolve_ticker_name("NQ=F")
+    name_2 = resolve_ticker_name("PWR", mock_cfg)
+    name_3 = resolve_ticker_name("UNKNOWN", mock_cfg)
+    res_resolver = (name_1 == "Nasdaq 100" and name_2 == "Quanta Services" and name_3 == "UNKNOWN")
+    
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as tmp:
+        t16_file = tmp.name
+        now_ts = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+        ts_50h = now_ts - (50 * 3600)
+        ts_2h = now_ts - (2 * 3600)
+        mock_state = {
+            "dismissed_signals": [f"sig_{ts_50h}_A", f"sig_{ts_2h}_B", "invalid_id"],
+            "consumed_signals": {f"sig_{ts_50h}_C": ["acc1"], f"sig_{ts_2h}_D": ["acc2"]}
+        }
+        json.dump(mock_state, tmp)
+    
+    try:
+        prune_alert_state(t16_file)
+        with open(t16_file, "r") as f: pruned = json.load(f)
+        
+        res_pruning = (
+            f"sig_{ts_50h}_A" not in pruned["dismissed_signals"] and
+            f"sig_{ts_2h}_B" in pruned["dismissed_signals"] and
+            "invalid_id" in pruned["dismissed_signals"] and
+            f"sig_{ts_50h}_C" not in pruned["consumed_signals"] and
+            f"sig_{ts_2h}_D" in pruned["consumed_signals"]
+        )
+    finally:
+        os.remove(t16_file)
+
+    if res_resolver and res_pruning:
+        log("[PASS] Klarnamen-Resolver & Autonomes 48h-Pruning")
+    else:
+        log(f"[FAIL] Klarnamen-Resolver & Autonomes 48h-Pruning (Resolver: {res_resolver}, Pruning: {res_pruning})")
+        all_passed = False
+
+    # 17. TEST: HIGH-IMPACT NEWS BLACKOUTS
+    try:
+        berlin_tz = zoneinfo.ZoneInfo("Europe/Berlin")
+    except Exception:
+        berlin_tz = datetime.timezone(datetime.timedelta(hours=1))
+        
+    dt_eia = datetime.datetime(2026, 10, 21, 16, 30, tzinfo=berlin_tz) 
+    dt_us_macro = datetime.datetime(2026, 10, 21, 14, 30, tzinfo=berlin_tz)
+    dt_safe = datetime.datetime(2026, 10, 21, 15, 0, tzinfo=berlin_tz)
+    
+    def is_news_blocked(sym, dt_mock):
+        b_weekday = dt_mock.weekday()
+        b_time = dt_mock.time()
+        if sym in ["CL=F", "MCL"]:
+            if b_weekday == 2 and datetime.time(16, 20) <= b_time <= datetime.time(16, 45):
+                return True
+        if sym in ["NQ=F", "MNQ", "EURUSD=X"]:
+            if b_weekday < 5 and datetime.time(14, 25) <= b_time <= datetime.time(14, 40):
+                return True
+        return False
+
+    if is_news_blocked("CL=F", dt_eia) and is_news_blocked("NQ=F", dt_us_macro) and not is_news_blocked("NQ=F", dt_safe):
+        log("[PASS] High-Impact News Blackouts (EIA & US-Makro)")
+    else:
+        log("[FAIL] High-Impact News Blackouts (EIA & US-Makro)")
+        all_passed = False
+
+    # 18. TEST: ASSET-WEICHE & BROKER-PROFILE
+    acc_bp = {"account_type": "private", "broker_profile": "Bitpanda Fusion (0.10% / 0.05%)", "tickers": ["ES=F", "BTC-USD", "NVDA"]}
+    acc_ib = {"account_type": "private", "broker_profile": "Interactive Brokers / Flatex", "tickers": ["CL=F", "AAPL"]}
+    now_mock = datetime.datetime.now()
+    dna_mock = {"session": (0, 0, 23, 59)}
+    
+    res_bp_es, _ = audit_account_for_signal("test", acc_bp, "ES=F", False, 100, "A", now_mock, dna_mock)
+    res_bp_btc, _ = audit_account_for_signal("test", acc_bp, "BTC-USD", False, 100, "A", now_mock, dna_mock)
+    res_bp_nvda, _ = audit_account_for_signal("test", acc_bp, "NVDA", False, 100, "A", now_mock, dna_mock)
+    
+    res_ib_cl, _ = audit_account_for_signal("test", acc_ib, "CL=F", False, 100, "A", now_mock, dna_mock)
+    res_ib_aapl, _ = audit_account_for_signal("test", acc_ib, "AAPL", False, 100, "A", now_mock, dna_mock)
+    
+    if not res_bp_es and res_bp_btc and res_bp_nvda and res_ib_cl and res_ib_aapl:
+        log("[PASS] Asset-Klassen-Weiche (Futures-Schutz & Multi-Asset Profile)")
+    else:
+        log("[FAIL] Asset-Klassen-Weiche (Futures-Schutz & Multi-Asset Profile)")
+        all_passed = False
+
+    # 19. TEST: HARD-FLATTEN SPOOLING & IDEMPOTENZ (LIVE_AUTO)
+    t19_user_dir = tempfile.mkdtemp(prefix="test19_")
+    t19_pending = os.path.join(t19_user_dir, "signals", "01_pending")
+    os.makedirs(t19_pending, exist_ok=True)
+    
+    old_pending_19 = PENDING_SIGNALS_DIR
+    PENDING_SIGNALS_DIR = t19_pending
+
+    try:
+        t19_cfg = {
+            "lab_accounts": {
+                "acc1": {"name": "Test Acc 19", "execution_mode": "LIVE_AUTO", "account_type": "apex", "broker_account": "DEMO", "tickers": ["MNQ"]}
+            }
+        }
+        with open(os.path.join(t19_user_dir, "ticker_config.json"), "w") as f:
+            json.dump(t19_cfg, f)
+            
+        t19_journal = os.path.join(t19_user_dir, "trade_journal.csv")
+        df19 = pd.DataFrame([{
+            "id": "T19_FLATTEN", "status": "OPEN", "symbol": "MNQ", "account_name": "Test Acc 19",
+            "direction": "Long", "entry_price": 100.0, "sl_price": 90.0, "current_sl": 0.0, 
+            "position_size": 1.0, "point_value": 2.0, "fx_rate": 1.0, "est_fees_eur": 5.0, 
+            "initial_sl_price": 90.0
+        }])
+        df19.to_csv(t19_journal, index=False)
+        
+        # Mock get_ny_now, get_berlin_now und get_current_price (Mittwoch 16:52 ET)
+        old_ny_now = globals().get('get_ny_now')
+        old_berlin_now = globals().get('get_berlin_now')
+        old_get_price_19 = globals().get('get_current_price')
+        
+        try:
+            mock_tz_ny = zoneinfo.ZoneInfo("America/New_York")
+            mock_tz_ber = zoneinfo.ZoneInfo("Europe/Berlin")
+        except:
+            mock_tz_ny = datetime.timezone(datetime.timedelta(hours=-4))
+            mock_tz_ber = datetime.timezone(datetime.timedelta(hours=1))
+            
+        globals()['get_ny_now'] = lambda: datetime.datetime(2026, 11, 11, 16, 52, 0, tzinfo=mock_tz_ny)
+        globals()['get_berlin_now'] = lambda: datetime.datetime(2026, 11, 11, 22, 52, 0, tzinfo=mock_tz_ber)
+        globals()['get_current_price'] = lambda sym, ttl=15: 105.0
+        
+        # Lauf 1
+        check_open_trades(t19_user_dir)
+        files = [f for f in os.listdir(t19_pending) if "sig_flatten" in f]
+        t19_spooled = len(files) == 1
+        
+        df_after = pd.read_csv(t19_journal)
+        t19_journal_open = df_after.iloc[0]["status"] == "OPEN"
+        
+        # Lauf 2 (Idempotenz)
+        check_open_trades(t19_user_dir)
+        files_after = [f for f in os.listdir(t19_pending) if "sig_flatten" in f]
+        t19_idempotent = len(files_after) == 1
+        
+        if t19_spooled and t19_journal_open and t19_idempotent:
+            log("[PASS] Hard-Flatten Spooling & Idempotenz (LIVE_AUTO)")
+        else:
+            log(f"[FAIL] Hard-Flatten Spooling (Spooled: {t19_spooled}, StillOpen: {t19_journal_open}, Idempotent: {t19_idempotent})")
+            all_passed = False
+
+    finally:
+        if 'old_ny_now' in locals() and old_ny_now:
+            globals()['get_ny_now'] = old_ny_now
+        if 'old_berlin_now' in locals() and old_berlin_now:
+            globals()['get_berlin_now'] = old_berlin_now
+        if 'old_get_price_19' in locals() and old_get_price_19:
+            globals()['get_current_price'] = old_get_price_19
+            
+        PENDING_SIGNALS_DIR = old_pending_19
+        import shutil
+        shutil.rmtree(t19_user_dir, ignore_errors=True)
 
     log("================================================================================")
     if all_passed:
