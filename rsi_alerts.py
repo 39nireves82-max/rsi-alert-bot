@@ -555,18 +555,6 @@ def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, 
     sym_u = str(sym).strip().upper()
     norm_sym = normalize_symbol(sym_u)
     
-    # Poka-Yoke Wildcard-Schutz für ALLE Konten
-    if not acc_tickers or len(acc_tickers) == 0:
-        return False, ""
-        
-    # Symmetrische Dual-Notation Whitelist
-    raw_tickers = {str(t).strip().upper() for t in acc_tickers if t}
-    norm_tickers = {normalize_symbol(t) for t in raw_tickers}
-    
-    if not (sym_u in raw_tickers or norm_sym in norm_tickers or norm_sym in raw_tickers or sym_u in norm_tickers):
-        return False, ""
-            
-    # 1.5 Harte Asset-Schranken
     sym_u_check = sym_u
     norm_sym_check = norm_sym
     
@@ -575,39 +563,43 @@ def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, 
     is_forex_check = "=X" in norm_sym_check or "DX-Y" in norm_sym_check
     is_equity_check = not is_crypto_check and not is_future_check and not is_forex_check
     
-    if account_type == "apex":
-        apex_master_kader = ["NQ=F", "MNQ", "CL=F", "MCL"]
-        if sym_u_check not in apex_master_kader and norm_sym_check not in apex_master_kader:
+    # 1. Whitelist oder Fallback
+    if acc_tickers and len(acc_tickers) > 0:
+        raw_tickers = {str(t).strip().upper() for t in acc_tickers if t}
+        norm_tickers = {normalize_symbol(t) for t in raw_tickers}
+        if not (sym_u in raw_tickers or norm_sym in norm_tickers or norm_sym in raw_tickers or sym_u in norm_tickers):
             return False, ""
-    if account_type == "ftmo":
-        ftmo_forex_kader = ["EURUSD=X", "GBPUSD=X", "USDJPY=X"]
-        if not is_forex_check or (sym_u_check not in ftmo_forex_kader and norm_sym_check not in ftmo_forex_kader):
-            return False, ""
-            
+    else:
+        if account_type == "apex":
+            apex_master_kader = ["NQ=F", "MNQ", "CL=F", "MCL"]
+            if sym_u_check not in apex_master_kader and norm_sym_check not in apex_master_kader:
+                return False, ""
+        elif account_type == "ftmo":
+            ftmo_forex_kader = ["EURUSD=X", "GBPUSD=X", "USDJPY=X"]
+            if not is_forex_check and sym_u_check not in ftmo_forex_kader and norm_sym_check not in ftmo_forex_kader:
+                return False, ""
+
+    # 1.5 Harte Asset-Schranken (Gelten IMMER, unabhängig von der Watchlist)
     if account_type == "private":
         b_prof = str(acc.get("broker_profile", "")).lower()
         a_name = str(acc.get("name", "")).lower()
         e_prof = str(acc.get("exit_profile", "")).lower()
         
-        # 1. Rohstoff-Konto-Schutz
         is_commodity_acc = any(term in text for term in ["rohstoff", "commodity"] for text in [b_prof, a_name, e_prof])
         if is_commodity_acc:
             allowed_com = ["CL=F", "MCL", "NG=F", "QG", "GC=F", "MGC", "SI=F", "SIL", "HG=F", "MHG"]
             if sym_u_check not in allowed_com and norm_sym_check not in allowed_com:
                 return False, ""
-
-        if "bybit" in b_prof:
+        elif "bybit" in b_prof:
             if not is_crypto_check:
                 return False, ""
         elif "forex" in b_prof or "metatrader" in b_prof:
             if not is_forex_check:
                 return False, ""
         elif "interactive" in b_prof:
-            # Multi-Asset: Erlaubt Aktien und Futures (CL=F, GC=F), sperrt Forex
             if is_forex_check:
                 return False, ""
         elif "bitpanda" in b_prof or "flatex" in b_prof:
-            # Kassa-Broker: Sperrt Futures und Forex, erlaubt Aktien und Krypto
             if is_future_check or is_forex_check:
                 return False, ""
 
@@ -1566,9 +1558,7 @@ def run_watchlist_entry_screener():
                         continue
 
         now_utc = local_now.astimezone(datetime.timezone.utc)
-        if tf == "1h" and now_utc.minute > 4:
-            continue
-        if tf == "4h" and (now_utc.hour % 4 != 0 or now_utc.minute > 4):
+        if tf in ["1h", "4h"] and now_utc.minute > 4:
             continue
             
         active_tickers_for_download[ticker] = data
@@ -1733,6 +1723,8 @@ def run_watchlist_entry_screener():
             setup_name = f"Setup {setup_type} {'Trend-Pullback' if setup_type == 'B' else 'Reversal'}"
             sig_dir_str = "SHORT" if is_short else "LONG"
 
+            log(f"[SIGNAL] {sym_u} ({sig_dir_str}, Score: {score}) -> Verarbeite für Mandanten...")
+
             any_delivered = False
             sent_chat_ids = set()
             all_matched_account_names = []
@@ -1769,7 +1761,21 @@ def run_watchlist_entry_screener():
                         all_matched_account_names.append(acc.get("name", "Unbekannt"))
                         
                 if not matched_accounts:
-                    continue
+                    if sym_u in CME_FUTURE_SYMBOLS or "=F" in norm_sym:
+                        synth_name = "[🏢 Prop-Desk (Apex)]"
+                        synth_type = "apex"
+                    elif "=X" in norm_sym or "DX-Y" in norm_sym:
+                        synth_name = "[🏢 Prop-Desk (FTMO)]"
+                        synth_type = "ftmo"
+                    elif is_crypto_symbol(sym_u):
+                        synth_name = "[🪙 Privates Depot (Krypto)]"
+                        synth_type = "private"
+                    else:
+                        synth_name = "[👤 Privates Depot (Swing-Desk)]"
+                        synth_type = "private"
+                    
+                    matched_accounts.append(({"name": synth_name, "execution_mode": "CO_PILOT", "exit_profile": "prop_guard"}, synth_type))
+                    all_matched_account_names.append(synth_name)
 
                 resolved = resolve_ticker_name(sym_u, cfg)
                 if resolved != sym_u:
@@ -1785,12 +1791,20 @@ def run_watchlist_entry_screener():
                 has_private = any(a_type == "private" for acc, a_type in matched_accounts)
                 
                 routing_blocks = []
-                if has_prop:
-                    routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [🏢 Prop-Desk (Apex / FTMO)]\n⚠️ <i>Streng limitiert auf freigegebenen Master-Kader</i>")
-                if has_private:
-                    routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [👤 Privates Depot]\nℹ️ <i>Freies Sizing nach Kontogröße & Risiko</i>")
-                if not routing_blocks:
-                    routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [Allgemein]")
+                is_future_routing = sym_u in CME_FUTURE_SYMBOLS or "=F" in norm_sym
+                is_forex_routing = "=X" in norm_sym or "DX-Y" in norm_sym
+                
+                if is_future_routing:
+                    routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [🏢 Prop-Desk (Apex)]\nℹ️ <i>Auch zulässig für: [👤 Privates Futures-Depot]</i>")
+                elif is_forex_routing:
+                    routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [🏢 Prop-Desk (FTMO)]\nℹ️ <i>Auch zulässig für: [👤 Privates Devisen-Depot]</i>")
+                else:
+                    if has_prop:
+                        routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [🏢 Prop-Desk (Apex / FTMO)]\n⚠️ <i>Streng limitiert auf freigegebenen Master-Kader</i>")
+                    if has_private:
+                        routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [👤 Privates Depot]\nℹ️ <i>Freies Sizing nach Kontogröße & Risiko</i>")
+                    if not routing_blocks:
+                        routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [Allgemein]")
                     
                 routing_str = "\n\n".join(routing_blocks)
                 exec_mode_str = "⚡ <b>Ausführung:</b> 🟢 LIVE-AUTO aktiviert" if any(acc.get("execution_mode") == "LIVE_AUTO" for acc, a_type in matched_accounts) else "⚡ <b>Ausführung:</b> 🔵 Co-Pilot (Manuelle Orderaufgabe)"
@@ -1873,6 +1887,15 @@ def run_watchlist_entry_screener():
                         "type": a_type,
                         "profile": acc.get("exit_profile", "prop_guard")
                     })
+                is_future_routing = sym_u in CME_FUTURE_SYMBOLS or "=F" in norm_sym
+                is_forex_routing = "=X" in norm_sym or "DX-Y" in norm_sym
+                
+                if is_future_routing:
+                    routing_recs.append({"name": "[🏢 Prop-Desk (Apex)]", "type": "apex", "profile": "prop_guard"})
+                    routing_recs.append({"name": "[👤 Privates Futures-Depot]", "type": "private", "profile": "prop_guard"})
+                elif is_forex_routing:
+                    routing_recs.append({"name": "[🏢 Prop-Desk (FTMO)]", "type": "ftmo", "profile": "prop_guard"})
+                    routing_recs.append({"name": "[👤 Privates Devisen-Depot]", "type": "private", "profile": "prop_guard"})
                     
                 is_fut_fx = ("=F" in sym_u or "=X" in sym_u or "DX-Y" in sym_u or sym_u in CME_FUTURE_SYMBOLS)
                 ttl_seconds = 900 if is_fut_fx else 2700
@@ -2068,19 +2091,18 @@ def run_tests():
         log("[FAIL] Konto-Audit Schranken-Check (Richtung & Score)")
         all_passed = False
 
-    # 7. TEST: WHITELIST-SCHUTZ & WILDCARD-FALLE
+    # 7. TEST: WHITELIST-SCHUTZ & WILDCARD-FALLE (NEUE FALLBACK-LOGIK)
     test_acc_7_a1 = {"tickers": ["MNQ"], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "apex"}
-    test_acc_7_a2 = {"tickers": ["NQ=F"], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "apex"}
-    test_acc_7_empty = {"tickers": [], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "private"}
-    test_acc_7_roh = {"name": "Privatkonto Rohstoffrunner", "tickers": ["CL=F", "GC=F"], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "private"}
+    test_acc_7_apex_empty = {"tickers": [], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "apex"}
+    test_acc_7_roh = {"name": "Privatkonto Rohstoffrunner", "broker_profile": "Rohstoff", "tickers": [], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "private"}
     
     res_7a, _ = audit_account_for_signal("test", test_acc_7_a1, "NQ=F", False, 100, "A", now_mock, dna_mock)
-    res_7b, _ = audit_account_for_signal("test", test_acc_7_a2, "MNQ", False, 100, "A", now_mock, dna_mock)
-    res_7c, _ = audit_account_for_signal("test", test_acc_7_empty, "NQ=F", False, 100, "A", now_mock, dna_mock)
+    res_7b, _ = audit_account_for_signal("test", test_acc_7_apex_empty, "NQ=F", False, 100, "A", now_mock, dna_mock)
+    res_7c, _ = audit_account_for_signal("test", test_acc_7_apex_empty, "GC=F", False, 100, "A", now_mock, dna_mock)
     res_7d, _ = audit_account_for_signal("test", test_acc_7_roh, "NQ=F", False, 100, "A", now_mock, dna_mock)
     
     if res_7a and res_7b and not res_7c and not res_7d:
-        log("[PASS] Whitelist-Schutz (Symmetrische Dual-Notation, Rohstoff-Sperre & Poka-Yoke)")
+        log("[PASS] Whitelist-Schutz & Neue Fallback-Logik für leere Listen")
     else:
         log(f"[FAIL] Whitelist-Schutz (7a:{res_7a} 7b:{res_7b} 7c:{res_7c} 7d:{res_7d})")
         all_passed = False
