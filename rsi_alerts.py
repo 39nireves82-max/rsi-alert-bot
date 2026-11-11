@@ -495,7 +495,7 @@ ASSET_DNA = {
     "CL=F": {"tf": "4h", "session": (8, 30, 11, 30), "min_score": 65, "allowed_setups": ["A", "B"], "desk": "Privat Rohstoffe", "tick": 0.01, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
     "GC=F": {"tf": "1h", "session": (9, 0, 15, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Privat Rohstoffe", "tick": 0.10, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
     "GERMAN_EQUITY": {"tf": "4h", "session": (9, 0, 17, 30), "min_score": 70, "allowed_setups": ["B"], "desk": "Privat Swing", "tick": 0.01, "decimals": 2, "rsi_bounds": (35, 70), "tz": "Europe/Berlin"},
-    "DEFAULT_FOREX": {"tf": "4h", "session": (0, 0, 23, 59), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "DEFAULT_FOREX": {"tf": "4h", "session": (3, 0, 16, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70), "tz": "America/New_York"},
     "DEFAULT_FUTURE": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.25, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
     "DEFAULT_CRYPTO": {"tf": "4h", "session": (0, 0, 23, 59), "min_score": 65, "allowed_setups": ["A"], "desk": "Privat Krypto", "tick": 0.01, "decimals": 4, "rsi_bounds": (25, 75), "tz": "America/New_York"},
     "DEFAULT_EQUITY": {"tf": "4h", "session": (9, 30, 16, 0), "min_score": 70, "allowed_setups": ["B"], "desk": "Privat Swing", "tick": 0.01, "decimals": 2, "rsi_bounds": (35, 70), "tz": "America/New_York"},
@@ -561,9 +561,6 @@ def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, 
     is_crypto_check = is_crypto_symbol(sym_u_check)
     is_future_check = sym_u_check in CME_FUTURE_SYMBOLS or "=F" in norm_sym_check
     is_forex_check = "=X" in norm_sym_check or "DX-Y" in norm_sym_check
-    is_equity_check = not is_crypto_check and not is_future_check and not is_forex_check
-    
-    # 1. Whitelist oder Fallback
     if acc_tickers and len(acc_tickers) > 0:
         raw_tickers = {str(t).strip().upper() for t in acc_tickers if t}
         norm_tickers = {normalize_symbol(t) for t in raw_tickers}
@@ -579,7 +576,7 @@ def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, 
             if not is_forex_check and sym_u_check not in ftmo_forex_kader and norm_sym_check not in ftmo_forex_kader:
                 return False, ""
 
-    # 1.5 Harte Asset-Schranken (Gelten IMMER, unabhängig von der Watchlist)
+    # 1.5 Harte Asset-Schranken (Gelten hierarchisch für alle Privatkonten)
     if account_type == "private":
         b_prof = str(acc.get("broker_profile", "")).lower()
         a_name = str(acc.get("name", "")).lower()
@@ -1760,13 +1757,23 @@ def run_watchlist_entry_screener():
                         matched_accounts.append((acc, a_type))
                         all_matched_account_names.append(acc.get("name", "Unbekannt"))
                         
+                PROP_FUTURES_KADER = {"NQ=F", "MNQ", "CL=F", "MCL"}
+                PROP_FOREX_KADER = {"EURUSD=X", "GBPUSD=X", "USDJPY=X"}
+                
+                is_prop_future = sym_u in PROP_FUTURES_KADER or norm_sym in PROP_FUTURES_KADER
+                is_prop_forex = sym_u in PROP_FOREX_KADER or norm_sym in PROP_FOREX_KADER
+                is_other_deriv = not is_prop_future and not is_prop_forex and ("=F" in norm_sym or "=X" in norm_sym or sym_u in CME_FUTURE_SYMBOLS or "DX-Y" in norm_sym)
+
                 if not matched_accounts:
-                    if sym_u in CME_FUTURE_SYMBOLS or "=F" in norm_sym:
+                    if is_prop_future:
                         synth_name = "[🏢 Prop-Desk (Apex)]"
                         synth_type = "apex"
-                    elif "=X" in norm_sym or "DX-Y" in norm_sym:
+                    elif is_prop_forex:
                         synth_name = "[🏢 Prop-Desk (FTMO)]"
                         synth_type = "ftmo"
+                    elif is_other_deriv:
+                        synth_name = "[🧪 EXPERIMENT / LABOR]"
+                        synth_type = "experiment"
                     elif is_crypto_symbol(sym_u):
                         synth_name = "[🪙 Privates Depot (Krypto)]"
                         synth_type = "private"
@@ -1785,19 +1792,22 @@ def run_watchlist_entry_screener():
 
                 # Säule 9: Header-Steuerung und Farb-Badges (Zentralisiert)
                 header, account_badges = get_telegram_header_and_badges(matched_accounts, is_crypto, is_short)
+                if is_other_deriv:
+                    header = "🧪 INVARIX LABOR ALERT (PHASE 7 QUARANTÄNE)"
+                    
                 accounts_str = "\n".join(account_badges)
                 
-                has_prop = any(a_type in ["apex", "ftmo"] and (sym_u in ["NQ=F", "MNQ", "CL=F", "MCL", "EURUSD=X", "GBPUSD=X", "USDJPY=X"] or norm_sym in ["NQ=F", "MNQ", "CL=F", "MCL", "EURUSD=X", "GBPUSD=X", "USDJPY=X"]) for acc, a_type in matched_accounts)
+                has_prop = any(a_type in ["apex", "ftmo"] for acc, a_type in matched_accounts)
                 has_private = any(a_type == "private" for acc, a_type in matched_accounts)
                 
                 routing_blocks = []
-                is_future_routing = sym_u in CME_FUTURE_SYMBOLS or "=F" in norm_sym
-                is_forex_routing = "=X" in norm_sym or "DX-Y" in norm_sym
                 
-                if is_future_routing:
+                if is_prop_future:
                     routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [🏢 Prop-Desk (Apex)]\nℹ️ <i>Auch zulässig für: [👤 Privates Futures-Depot]</i>")
-                elif is_forex_routing:
+                elif is_prop_forex:
                     routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [🏢 Prop-Desk (FTMO)]\nℹ️ <i>Auch zulässig für: [👤 Privates Devisen-Depot]</i>")
+                elif is_other_deriv:
+                    routing_blocks.append("🎯 Status: [🧪 EXPERIMENT / LABOR]\n⚠️ Streng defensiv handeln! Nicht für Prop-Accounts freigegeben.")
                 else:
                     if has_prop:
                         routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [🏢 Prop-Desk (Apex / FTMO)]\n⚠️ <i>Streng limitiert auf freigegebenen Master-Kader</i>")
@@ -1843,12 +1853,27 @@ def run_watchlist_entry_screener():
                         acc_id_val = acc.get("id", "")
                         acc_name_val = acc.get("name", acc_id_val)
                         
+                        acc_size_fallback = 100000.0 if account_type == "ftmo" else (50000.0 if account_type == "apex" else 10000.0)
+                        raw_size = acc.get("account_size")
+                        parsed_size = float(raw_size) if raw_size is not None and str(raw_size).replace('.','',1).isdigit() else acc_size_fallback
+                        
+                        def_daily = parsed_size * 0.05 if account_type == "ftmo" else 1250.0
+                        raw_daily = acc.get("daily_buffer")
+                        parsed_daily = float(raw_daily) if raw_daily is not None else def_daily
+
+                        def_max_dd = parsed_size * 0.10 if account_type == "ftmo" else 2500.0
+                        raw_max_dd = acc.get("max_dd_buffer")
+                        parsed_max_dd = float(raw_max_dd) if raw_max_dd is not None else def_max_dd
+
                         signal_payload = {
                             "account_id": broker_acc,
                             "lab_account_id": acc_id_val,
                             "account_name": acc_name_val,
                             "account_type": account_type,
-                            "balance": float(acc.get("account_size", 50000.0)),
+                            "balance": float(acc.get("account_size", acc_size_fallback)),
+                            "account_size": parsed_size,
+                            "daily_buffer": parsed_daily,
+                            "max_dd_buffer": parsed_max_dd,
                             "symbol": sym_u,
                             "name": ticker_name,
                             "direction": sig_dir_str,
@@ -1882,20 +1907,21 @@ def run_watchlist_entry_screener():
             if any_delivered:
                 routing_recs = []
                 for acc, a_type in matched_accounts:
-                    routing_recs.append({
-                        "name": acc.get("name", "Unbekannt"),
-                        "type": a_type,
-                        "profile": acc.get("exit_profile", "prop_guard")
-                    })
-                is_future_routing = sym_u in CME_FUTURE_SYMBOLS or "=F" in norm_sym
-                is_forex_routing = "=X" in norm_sym or "DX-Y" in norm_sym
+                    if acc.get("name") not in ["[🏢 Prop-Desk (Apex)]", "[🏢 Prop-Desk (FTMO)]", "[🧪 EXPERIMENT / LABOR]", "[🪙 Privates Depot (Krypto)]", "[👤 Privates Depot (Swing-Desk)]"]:
+                        routing_recs.append({
+                            "name": acc.get("name", "Unbekannt"),
+                            "type": a_type,
+                            "profile": acc.get("exit_profile", "prop_guard")
+                        })
                 
-                if is_future_routing:
+                if is_prop_future:
                     routing_recs.append({"name": "[🏢 Prop-Desk (Apex)]", "type": "apex", "profile": "prop_guard"})
                     routing_recs.append({"name": "[👤 Privates Futures-Depot]", "type": "private", "profile": "prop_guard"})
-                elif is_forex_routing:
+                elif is_prop_forex:
                     routing_recs.append({"name": "[🏢 Prop-Desk (FTMO)]", "type": "ftmo", "profile": "prop_guard"})
                     routing_recs.append({"name": "[👤 Privates Devisen-Depot]", "type": "private", "profile": "prop_guard"})
+                elif is_other_deriv:
+                    routing_recs.append({"name": "[🧪 EXPERIMENT / LABOR]", "type": "experiment", "profile": "prop_guard"})
                     
                 is_fut_fx = ("=F" in sym_u or "=X" in sym_u or "DX-Y" in sym_u or sym_u in CME_FUTURE_SYMBOLS)
                 ttl_seconds = 900 if is_fut_fx else 2700
