@@ -1625,8 +1625,6 @@ def run_watchlist_entry_screener():
             kc_low_val = float(kc_lower.iloc[-1])
             kc_up_val = float(kc_upper.iloc[-1])
 
-            atr_val = float(atr.iloc[-1]) if pd.notna(atr.iloc[-1]) and atr.iloc[-1] > 0.0 else 0.0
-
             # Säule 8: Dual-Key-Idempotenz (In-Memory & Disk)
             try:
                 candle_ts_unix = int(df.index[-1].timestamp())
@@ -1702,14 +1700,6 @@ def run_watchlist_entry_screener():
                 if sl <= c_p:
                     sl = c_p * 1.02
                 tp = e200 if (setup_type == "A" and c_p > e200 and e200 > c_p * 0.85) else (float(df["Low"].tail(24).min()) if "Low" in df.columns else c_p * 0.98)
-
-            # SÄULE 5.8: Forex-isolierter ATR-Puffer (0.5x ATR14) für Initial-SL
-            is_forex = "=X" in norm_sym or "DX-Y" in norm_sym
-            if is_forex and atr_val > 0.0:
-                if not is_short:
-                    sl -= (0.5 * atr_val)
-                else:
-                    sl += (0.5 * atr_val)
 
             sl = round_to_tick(sl, sym_u)
             tp = round_to_tick(tp, sym_u)
@@ -2500,28 +2490,6 @@ def run_tests():
         PENDING_SIGNALS_DIR = old_pending_19
         import shutil
         shutil.rmtree(t19_user_dir, ignore_errors=True)
-
-    # 20. TEST: FOREX-ISOLIERTER ATR-PUFFER FÜR INITIAL-SL
-    def sim_sl(sym, is_short, raw_sl, atr_v):
-        norm = normalize_symbol(sym)
-        is_fx = "=X" in norm or "DX-Y" in norm
-        sl_calc = raw_sl
-        if is_fx and atr_v > 0.0:
-            if not is_short:
-                sl_calc -= (0.5 * atr_v)
-            else:
-                sl_calc += (0.5 * atr_v)
-        return round_to_tick(sl_calc, sym)
-    
-    t20_eur_l = sim_sl("EURUSD=X", False, 1.05000, 0.00400) # raw 1.05, - 0.00200 = 1.04800
-    t20_eur_s = sim_sl("USDJPY=X", True, 150.000, 1.000)   # raw 150, + 0.500 = 150.500
-    t20_nq_l = sim_sl("NQ=F", False, 15000.00, 100.00)     # future, no buffer = 15000.00
-
-    if t20_eur_l == 1.04800 and t20_eur_s == 150.500 and t20_nq_l == 15000.00:
-        log("[PASS] Forex-isolierter ATR-Puffer (0.5x) funktioniert korrekt")
-    else:
-        log(f"[FAIL] Forex-isolierter ATR-Puffer (EUR: {t20_eur_l}, JPY: {t20_eur_s}, NQ: {t20_nq_l})")
-        all_passed = False
 
     log("================================================================================")
     if all_passed:
