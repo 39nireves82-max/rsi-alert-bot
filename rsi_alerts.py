@@ -314,23 +314,6 @@ def prune_alert_state(state_file: str, max_age_seconds: int = 172800) -> bool:
         if modified:
             state["dismissed_signals"] = new_dismissed
 
-    # Bereinigung 'consumed_signals'
-    consumed = state.get("consumed_signals", {})
-    if isinstance(consumed, dict):
-        new_consumed = {}
-        for sig_id, accs in consumed.items():
-            m = re.search(r"sig_(\d+)_", str(sig_id))
-            if m:
-                ts = int(m.group(1))
-                if (now_ts - ts) <= max_age_seconds:
-                    new_consumed[sig_id] = accs
-                else:
-                    modified = True
-            else:
-                new_consumed[sig_id] = accs
-        if modified:
-            state["consumed_signals"] = new_consumed
-
     if modified:
         return atomic_write_json(state_file, state)
     return False
@@ -879,6 +862,8 @@ def check_open_trades(user_dir: str):
                 break
                 
         acc_type = resolve_account_type(matched_acc_id, matched_acc) if matched_acc else ("apex" if "apex" in acc_name_raw.lower() else ("ftmo" if "ftmo" in acc_name_raw.lower() else "private"))
+
+        is_live_auto_prop = bool(matched_acc and matched_acc.get("execution_mode") == "LIVE_AUTO" and acc_type in ["apex", "ftmo"])
         
         is_apex_acc = (acc_type == "apex") or ("apex" in acc_name_raw.lower()) or (exit_profile in ["apex_lock", "apex_commodity_scale"])
         is_ftmo_acc = (acc_type == "ftmo") or ("ftmo" in acc_name_raw.lower())
@@ -1052,13 +1037,16 @@ def check_open_trades(user_dir: str):
             sl_hit_key = f"{t_id}_sl_hit"
             is_sl_hit = (curr_price <= active_sl) if is_long else (curr_price >= active_sl)
             if is_sl_hit and not alert_state.get(sl_hit_key):
-                alerts.append((
-                    sl_hit_key,
-                    f"🛑 <b>STOP-LOSS GERISSEN: {html.escape(display_name)} ({direction})</b>\n"
-                    f"• Konto: {acc_name}\n"
-                    f"• Kurs: {format_price(curr_price, sym)} | SL: {format_price(active_sl, sym)}\n"
-                    f"• Aktion: Position im Broker prüfen und im Journal schließen!"
-                ))
+                if not is_live_auto_prop:
+                    alerts.append((
+                        sl_hit_key,
+                        f"🛑 <b>STOP-LOSS GERISSEN: {html.escape(display_name)} ({direction})</b>\n"
+                        f"• Konto: {acc_name}\n"
+                        f"• Kurs: {format_price(curr_price, sym)} | SL: {format_price(active_sl, sym)}\n"
+                        f"• Aktion: Position im Broker prüfen und im Journal schließen!"
+                    ))
+                else:
+                    alert_state[sl_hit_key] = True
 
         is_runner_profile = exit_mode in ["ALPHA_CASHFLOW", "HOME_RUN_TREND", "private_alpha"]
         has_valid_tp = (0 < tp_price < 900000)
@@ -1067,13 +1055,16 @@ def check_open_trades(user_dir: str):
             tp_hit_key = f"{t_id}_tp_hit"
             is_tp_hit = (curr_price >= tp_price) if is_long else (curr_price <= tp_price)
             if is_tp_hit and not alert_state.get(tp_hit_key):
-                alerts.append((
-                    tp_hit_key,
-                    f"🎯 <b>TAKE-PROFIT ERREICHT: {html.escape(display_name)} ({direction})</b>\n"
-                    f"• Konto: {acc_name}\n"
-                    f"• Kurs: {format_price(curr_price, sym)} | TP: {format_price(tp_price, sym)}\n"
-                    f"• Aktion: Gewinn im Broker realisieren und Trade im Journal schließen!"
-                ))
+                if not is_live_auto_prop:
+                    alerts.append((
+                        tp_hit_key,
+                        f"🎯 <b>TAKE-PROFIT ERREICHT: {html.escape(display_name)} ({direction})</b>\n"
+                        f"• Konto: {acc_name}\n"
+                        f"• Kurs: {format_price(curr_price, sym)} | TP: {format_price(tp_price, sym)}\n"
+                        f"• Aktion: Gewinn im Broker realisieren und Trade im Journal schließen!"
+                    ))
+                else:
+                    alert_state[tp_hit_key] = True
 
         if risk_per_share <= 0:
             continue
@@ -1153,6 +1144,67 @@ def check_open_trades(user_dir: str):
                 if matched_acc and matched_acc.get("execution_mode") == "LIVE_AUTO":
                     acc_type = resolve_account_type(matched_acc_id, matched_acc)
                     if acc_type in ["apex", "ftmo"] and not is_crypto:
+                        scale_out_executed = False
+                        if current_r >= be_threshold and exit_mode in ["PROP_DEFENSIVE", "DEFENSIVE_EMERGENCY"]:
+                            import math
+                            is_divisible = False
+                            close_qty = 0.0
+                            runner_qty = 0.0
+                            
+                            if acc_type == "apex":
+                                if abs(position_size - round(position_size)) < 1e-6 and int(round(position_size)) >= 2:
+                                    is_divisible = True
+                                    close_qty = float(int(round(position_size)) // 2)
+                                    runner_qty = float(int(round(position_size)) - int(close_qty))
+                            elif acc_type == "ftmo":
+                                if round(position_size, 2) >= 0.02:
+                                    is_divisible = True
+                                    close_qty = math.floor((position_size * 0.50) * 100.0) / 100.0
+                                    if close_qty < 0.01: close_qty = 0.01
+                                    runner_qty = round(position_size - close_qty, 2)
+                                    
+                            if is_divisible:
+                                so_state_key = f"{t_id}_scale_out_spooled"
+                                has_split_journal = any(str(r_id).startswith(f"{t_id}_SO") for r_id in df_journal["id"])
+                                
+                                spool_skip = False
+                                for s_dir in [PENDING_SIGNALS_DIR, PROCESSING_SIGNALS_DIR]:
+                                    if os.path.exists(s_dir):
+                                        for f_name in os.listdir(s_dir):
+                                            if t_id in f_name:
+                                                spool_skip = True
+                                                break
+                                    if spool_skip: break
+                                    
+                                if not alert_state.get(so_state_key) and not has_split_journal and not spool_skip:
+                                    scale_out_sl = target_new_sl if target_new_sl else net_be
+                                    so_payload = {
+                                        "action": "SCALE_OUT_AND_PROTECT",
+                                        "trade_id": t_id,
+                                        "symbol": sym,
+                                        "instrument": sym,
+                                        "close_qty": close_qty,
+                                        "runner_qty": runner_qty,
+                                        "exit_price": curr_price,
+                                        "new_sl": scale_out_sl,
+                                        "account_id": matched_acc.get("broker_account", "AUTO_ROUTED"),
+                                        "lab_account_id": matched_acc_id,
+                                        "account_name": acc_name_raw,
+                                        "account_type": acc_type,
+                                        "direction": direction,
+                                        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                        "username": username
+                                    }
+                                    so_filename = f"sig_so_{int(time.time())}_{username}_{t_id}.json"
+                                    so_file = os.path.join(PENDING_SIGNALS_DIR, so_filename)
+                                    if atomic_write_json(so_file, so_payload):
+                                        alert_state[so_state_key] = True
+                                        atomic_write_json(alert_state_file, alert_state)
+                                        log(f"[{get_berlin_now().strftime('%H:%M:%S')}] ✅ AUTO-SCALE-OUT gespoolt: {sym} ({acc_name_raw}) -> Close: {close_qty}, Runner: {runner_qty}, SL: {scale_out_sl}")
+                                        scale_out_executed = True
+                                        
+                        if scale_out_executed:
+                            continue  # Überspringe MODIFY_STOP im aktuellen Lauf
                         spool_skip = False
                         for s_dir in [PENDING_SIGNALS_DIR, PROCESSING_SIGNALS_DIR]:
                             if os.path.exists(s_dir):
@@ -1736,6 +1788,55 @@ def run_watchlist_entry_screener():
                 config_file = os.path.join(user_dir, "ticker_config.json")
                 cfg = safe_load_json(config_file, default={})
                 lab_accs = cfg.get("lab_accounts", {})
+
+                journal_path = os.path.join(user_dir, "trade_journal.csv")
+                tenant_open_symbols_by_acc = {}
+                cooldown_active = False
+
+                if os.path.exists(journal_path):
+                    import csv
+                    try:
+                        with file_lock(journal_path, timeout=2.0):
+                            with open(journal_path, 'r', encoding='utf-8-sig') as f:
+                                reader = csv.DictReader(f)
+                                for row in reader:
+                                    r_status = str(row.get("status", "")).strip().upper()
+                                    r_acc = str(row.get("account_name", "")).strip()
+                                    r_sym_raw = str(row.get("symbol", "")).strip().upper().split()[0]
+                                    row_sym = normalize_symbol(r_sym_raw)
+                                    r_dir = str(row.get("direction", "")).strip().upper()
+
+                                    if r_status == "OPEN":
+                                        if r_acc not in tenant_open_symbols_by_acc:
+                                            tenant_open_symbols_by_acc[r_acc] = set()
+                                        tenant_open_symbols_by_acc[r_acc].add(row_sym)
+
+                                    elif r_status == "CLOSED" and row_sym == norm_sym and r_dir == sig_dir_str:
+                                        reason = str(row.get("exit_reason", "")).upper()
+                                        try:
+                                            pnl = float(str(row.get("pnl_eur", "0.0")).replace(',', '.'))
+                                        except ValueError:
+                                            pnl = 0.0
+
+                                        is_sl = ("SL" in reason or "STOP" in reason) or (reason == "BROKER_SL_TP_HIT" and pnl < 0)
+                                        if is_sl:
+                                            cooldown_sec = 3600 if tf == "1h" else 14400
+                                            exit_date_str = str(row.get("exit_date", "")).strip()
+                                            if exit_date_str:
+                                                try:
+                                                    dt = datetime.datetime.strptime(exit_date_str, "%d/%m/%Y %H:%M")
+                                                    dt = dt.replace(tzinfo=datetime.timezone.utc)
+                                                    now_utc_tmp = datetime.datetime.now(datetime.timezone.utc)
+                                                    if (now_utc_tmp - dt).total_seconds() < cooldown_sec:
+                                                        cooldown_active = True
+                                                        break
+                                                except ValueError:
+                                                    pass
+                    except Exception as e:
+                        log(f"Fehler beim Journal-Lesen für {uname}: {e}")
+
+                if cooldown_active:
+                    continue
                 
                 matched_accounts = []
                 for acc_key, acc in lab_accs.items():
@@ -1754,6 +1855,14 @@ def run_watchlist_entry_screener():
                         stammkader_set=stammkader_syms
                     )
                     if is_valid:
+
+                        acc_name_cfg = str(acc.get("name", "")).strip()
+                        open_syms = tenant_open_symbols_by_acc.get(acc_name_cfg, set())
+                        
+                        if norm_sym in open_syms:
+                            continue
+                        if a_type == "apex" and len(open_syms) > 0:
+                            continue
                         matched_accounts.append((acc, a_type))
                         all_matched_account_names.append(acc.get("name", "Unbekannt"))
                         
@@ -1765,24 +1874,27 @@ def run_watchlist_entry_screener():
                 is_other_deriv = not is_prop_future and not is_prop_forex and ("=F" in norm_sym or "=X" in norm_sym or sym_u in CME_FUTURE_SYMBOLS or "DX-Y" in norm_sym)
 
                 if not matched_accounts:
-                    if is_prop_future:
-                        synth_name = "[🏢 Prop-Desk (Apex)]"
-                        synth_type = "apex"
-                    elif is_prop_forex:
-                        synth_name = "[🏢 Prop-Desk (FTMO)]"
-                        synth_type = "ftmo"
-                    elif is_other_deriv:
-                        synth_name = "[🧪 EXPERIMENT / LABOR]"
-                        synth_type = "experiment"
-                    elif is_crypto_symbol(sym_u):
-                        synth_name = "[🪙 Privates Depot (Krypto)]"
-                        synth_type = "private"
+                    if not lab_accs or len(lab_accs) == 0:
+                        if is_prop_future:
+                            synth_name = "[🏢 Prop-Desk (Apex)]"
+                            synth_type = "apex"
+                        elif is_prop_forex:
+                            synth_name = "[🏢 Prop-Desk (FTMO)]"
+                            synth_type = "ftmo"
+                        elif is_other_deriv:
+                            synth_name = "[🧪 EXPERIMENT / LABOR]"
+                            synth_type = "experiment"
+                        elif is_crypto_symbol(sym_u):
+                            synth_name = "[🪙 Privates Depot (Krypto)]"
+                            synth_type = "private"
+                        else:
+                            synth_name = "[👤 Privates Depot (Swing-Desk)]"
+                            synth_type = "private"
+                        
+                        matched_accounts.append(({"name": synth_name, "execution_mode": "CO_PILOT", "exit_profile": "prop_guard"}, synth_type))
+                        all_matched_account_names.append(synth_name)
                     else:
-                        synth_name = "[👤 Privates Depot (Swing-Desk)]"
-                        synth_type = "private"
-                    
-                    matched_accounts.append(({"name": synth_name, "execution_mode": "CO_PILOT", "exit_profile": "prop_guard"}, synth_type))
-                    all_matched_account_names.append(synth_name)
+                        continue
 
                 resolved = resolve_ticker_name(sym_u, cfg)
                 if resolved != sym_u:
@@ -2347,8 +2459,7 @@ def run_tests():
         ts_50h = now_ts - (50 * 3600)
         ts_2h = now_ts - (2 * 3600)
         mock_state = {
-            "dismissed_signals": [f"sig_{ts_50h}_A", f"sig_{ts_2h}_B", "invalid_id"],
-            "consumed_signals": {f"sig_{ts_50h}_C": ["acc1"], f"sig_{ts_2h}_D": ["acc2"]}
+            "dismissed_signals": [f"sig_{ts_50h}_A", f"sig_{ts_2h}_B", "invalid_id"]
         }
         json.dump(mock_state, tmp)
     
@@ -2359,9 +2470,7 @@ def run_tests():
         res_pruning = (
             f"sig_{ts_50h}_A" not in pruned["dismissed_signals"] and
             f"sig_{ts_2h}_B" in pruned["dismissed_signals"] and
-            "invalid_id" in pruned["dismissed_signals"] and
-            f"sig_{ts_50h}_C" not in pruned["consumed_signals"] and
-            f"sig_{ts_2h}_D" in pruned["consumed_signals"]
+            "invalid_id" in pruned["dismissed_signals"]
         )
     finally:
         os.remove(t16_file)
