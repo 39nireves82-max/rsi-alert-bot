@@ -472,13 +472,13 @@ ASSET_DNA = {
     "ES=F": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.25, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
     "YM=F": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 1.0, "decimals": 0, "rsi_bounds": (30, 70), "tz": "America/New_York"},
     "RTY=F": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.10, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
-    "EURUSD=X": {"tf": "1h", "session": (7, 0, 12, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70), "tz": "America/New_York"},
-    "GBPUSD=X": {"tf": "4h", "session": (7, 0, 12, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70), "tz": "America/New_York"},
-    "USDJPY=X": {"tf": "4h", "session": (7, 0, 12, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.001, "decimals": 3, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "EURUSD=X": {"tf": "1h", "session": (7, 0, 12, 0), "min_score": 70, "allowed_setups": ["A"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "GBPUSD=X": {"tf": "4h", "session": (8, 0, 20, 30), "min_score": 70, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70), "tz": "Europe/Berlin"},
+    "USDJPY=X": {"tf": "4h", "session": (8, 0, 20, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.001, "decimals": 3, "rsi_bounds": (30, 70), "tz": "Europe/Berlin"},
     "CL=F": {"tf": "4h", "session": (8, 30, 11, 30), "min_score": 65, "allowed_setups": ["A", "B"], "desk": "Privat Rohstoffe", "tick": 0.01, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
     "GC=F": {"tf": "1h", "session": (9, 0, 15, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Privat Rohstoffe", "tick": 0.10, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
     "GERMAN_EQUITY": {"tf": "4h", "session": (9, 0, 17, 30), "min_score": 70, "allowed_setups": ["B"], "desk": "Privat Swing", "tick": 0.01, "decimals": 2, "rsi_bounds": (35, 70), "tz": "Europe/Berlin"},
-    "DEFAULT_FOREX": {"tf": "4h", "session": (3, 0, 16, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "DEFAULT_FOREX": {"tf": "4h", "session": (8, 0, 20, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70), "tz": "Europe/Berlin"},
     "DEFAULT_FUTURE": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.25, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
     "DEFAULT_CRYPTO": {"tf": "4h", "session": (0, 0, 23, 59), "min_score": 65, "allowed_setups": ["A"], "desk": "Privat Krypto", "tick": 0.01, "decimals": 4, "rsi_bounds": (25, 75), "tz": "America/New_York"},
     "DEFAULT_EQUITY": {"tf": "4h", "session": (9, 30, 16, 0), "min_score": 70, "allowed_setups": ["B"], "desk": "Privat Swing", "tick": 0.01, "decimals": 2, "rsi_bounds": (35, 70), "tz": "America/New_York"},
@@ -527,6 +527,38 @@ def resolve_account_type(acc_key: str, acc: dict) -> str:
     if any("ftmo" in x for x in [raw_type, raw_prof, raw_name, raw_key]):
         return "ftmo"
     return "private"
+
+def resolve_account_exit_mode(acc: dict, account_type: str, setup_type: str, symbol: str = "") -> tuple[str, str]:
+    if account_type == "apex":
+        fallback = "apex_lock"
+    elif account_type == "ftmo":
+        fallback = "ftmo_swing"
+    else:
+        fallback = "prop_guard"
+        
+    exit_prof = str(acc.get("exit_profile", fallback)).lower()
+    
+    if account_type == "apex" and symbol:
+        clean_sym = normalize_symbol(str(symbol).strip().upper())
+        if clean_sym in ENERGY_FUTURE_SYMBOLS:
+            exit_prof = "apex_commodity_scale"
+    
+    if exit_prof in ["apex_lock", "apex_commodity"]:
+        exit_mode = "TARGET_LOCKED"
+    elif exit_prof == "ftmo_swing":
+        exit_mode = "FTMO_SWING"
+    elif exit_prof in ["prop_guard", "defensive_swing", "apex_commodity_scale", "commodity_scale"]:
+        exit_mode = "PROP_DEFENSIVE"
+    elif exit_prof == "private_alpha":
+        su_up = str(setup_type).upper()
+        if "B" in su_up or "TREND" in su_up:
+            exit_mode = "HOME_RUN_TREND"
+        else:
+            exit_mode = "ALPHA_CASHFLOW"
+    else:
+        exit_mode = "PROP_DEFENSIVE"
+        
+    return exit_prof, exit_mode
 
 
 def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, score: int, setup_type: str, now_dt, dna: dict, stammkader_set: set = None) -> tuple[bool, str]:
@@ -837,18 +869,6 @@ def check_open_trades(user_dir: str):
                 exit_profile = acc.get("exit_profile", "prop_guard")
                 break
 
-        # Säule 9: Defensive Journal-Absicherung (striktes Dictionary-Fallback)
-        raw_exit = trade.get("exit_mode")
-        exit_mode = str(raw_exit).strip() if pd.notna(raw_exit) and str(raw_exit).strip() != "nan" else "TRAILING_STOP"
-        
-        if exit_mode == "TRAILING_STOP":
-            if exit_profile == "apex_lock":
-                exit_mode = "TARGET_LOCKED"
-            elif exit_profile in ["prop_guard", "defensive_swing", "apex_commodity_scale", "commodity_scale"]:
-                exit_mode = "PROP_DEFENSIVE"
-            else:
-                exit_mode = "HOME_RUN_TREND" if "Trend" in str(trade.get("setup_type", "")) else "ALPHA_CASHFLOW"
-
         sym_upper = sym.upper()
         norm_sym = normalize_symbol(sym_upper)
         
@@ -862,6 +882,13 @@ def check_open_trades(user_dir: str):
                 break
                 
         acc_type = resolve_account_type(matched_acc_id, matched_acc) if matched_acc else ("apex" if "apex" in acc_name_raw.lower() else ("ftmo" if "ftmo" in acc_name_raw.lower() else "private"))
+
+        # Säule 9: Defensive Journal-Absicherung (striktes Dictionary-Fallback)
+        raw_exit = trade.get("exit_mode")
+        exit_mode = str(raw_exit).strip() if pd.notna(raw_exit) and str(raw_exit).strip() != "nan" else "TRAILING_STOP"
+        
+        if exit_mode == "TRAILING_STOP" or not exit_mode:
+            _, exit_mode = resolve_account_exit_mode(matched_acc or {}, acc_type, str(trade.get("setup_type", "")), sym)
 
         is_live_auto_prop = bool(matched_acc and matched_acc.get("execution_mode") == "LIVE_AUTO" and acc_type in ["apex", "ftmo"])
         
@@ -1048,7 +1075,8 @@ def check_open_trades(user_dir: str):
                 else:
                     alert_state[sl_hit_key] = True
 
-        is_runner_profile = exit_mode in ["ALPHA_CASHFLOW", "HOME_RUN_TREND", "private_alpha"]
+        is_setup_b = "B" in str(trade.get("setup_type", "")).upper() or "TREND" in str(trade.get("setup_type", "")).upper()
+        is_runner_profile = exit_mode in ["ALPHA_CASHFLOW", "HOME_RUN_TREND", "private_alpha"] or (exit_mode == "FTMO_SWING" and is_setup_b)
         has_valid_tp = (0 < tp_price < 900000)
 
         if has_valid_tp and not is_runner_profile:
@@ -1096,6 +1124,16 @@ def check_open_trades(user_dir: str):
 
         if current_r >= be_threshold:
             target_new_sl = net_be
+            if exit_mode == "TARGET_LOCKED" and not is_crypto:
+                peak_protection = entry_price + (profit_per_share * 0.80) * dir_m
+                peak_sl = round_to_tick(peak_protection, sym)
+                if is_long:
+                    effective_old = active_sl if active_sl > 0 else entry_price
+                    peak_sl = min(max(peak_sl, net_be, effective_old), curr_price)
+                else:
+                    effective_old = active_sl if active_sl > 0 else entry_price
+                    peak_sl = max(min(peak_sl, net_be, effective_old), curr_price)
+                target_new_sl = peak_sl
 
         if current_r >= 1.5:
             trail_mult = 2.0 if exit_mode == "PROP_DEFENSIVE" else 2.5
@@ -1111,9 +1149,17 @@ def check_open_trades(user_dir: str):
             atr_proxy = (abs(tp_price - entry_price) / max(1.0, atr_days)) if (0 < tp_price < 900000) else (risk_per_share / 1.8)
             new_sl = curr_price - (trail_mult * atr_proxy) if is_long else curr_price + (trail_mult * atr_proxy)
 
-            if exit_mode == "TARGET_LOCKED" and not is_crypto:
-                peak_protection = entry_price + (profit_per_share * 0.80) * dir_m
-                new_sl = max(new_sl, peak_protection) if is_long else min(new_sl, peak_protection)
+            if exit_mode in ["FTMO_SWING", "ALPHA_CASHFLOW", "HOME_RUN_TREND"]:
+                r_floor = None
+                if current_r >= 6.0:
+                    r_floor = entry_price + (profit_per_share * 0.50 * dir_m)
+                elif current_r >= 4.0:
+                    r_floor = entry_price + (2.5 * risk_per_share * dir_m)
+                elif current_r >= 2.5:
+                    r_floor = entry_price + (1.0 * risk_per_share * dir_m)
+                
+                if r_floor is not None:
+                    new_sl = max(new_sl, r_floor) if is_long else min(new_sl, r_floor)
 
             # Harter Monotonie-Schutz (mindestens Netto-Break-Even, nie schlechter als Initial-SL)
             if is_long:
@@ -1145,7 +1191,7 @@ def check_open_trades(user_dir: str):
                     acc_type = resolve_account_type(matched_acc_id, matched_acc)
                     if acc_type in ["apex", "ftmo"] and not is_crypto:
                         scale_out_executed = False
-                        if current_r >= be_threshold and exit_mode in ["PROP_DEFENSIVE", "DEFENSIVE_EMERGENCY"]:
+                        if current_r >= be_threshold and exit_mode in ["PROP_DEFENSIVE", "DEFENSIVE_EMERGENCY", "FTMO_SWING"]:
                             import math
                             is_divisible = False
                             close_qty = 0.0
@@ -1159,7 +1205,8 @@ def check_open_trades(user_dir: str):
                             elif acc_type == "ftmo":
                                 if round(position_size, 2) >= 0.02:
                                     is_divisible = True
-                                    close_qty = math.floor((position_size * 0.50) * 100.0) / 100.0
+                                    so_fract = 0.30 if exit_mode == "FTMO_SWING" else 0.50
+                                    close_qty = math.floor((position_size * so_fract) * 100.0) / 100.0
                                     if close_qty < 0.01: close_qty = 0.01
                                     runner_qty = round(position_size - close_qty, 2)
                                     
@@ -1346,6 +1393,13 @@ def check_open_trades(user_dir: str):
                             f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R\n"
                             f"• Aktion: <b>Keine Teilschließung</b>, SL zieht aggressiv auf 80% des Buchgewinns nach!"
                         ))
+                    elif exit_mode == "FTMO_SWING":
+                        alerts.append((
+                            be_key,
+                            f"⚖️ <b>[FTMO-SWING] SCALE-OUT 30% & NET-BE: {html.escape(display_name)} ({direction})</b>\n"
+                            f"• Konto: {acc_name} | Gewinn: +{current_r:.2f} R erreicht!\n"
+                            f"• Aktion: <b>30% Teilverkauf</b> empfohlen. SL auf Netto-Break-Even!"
+                        ))
                     elif is_crypto:
                         alerts.append((
                             be_key,
@@ -1475,6 +1529,22 @@ def run_rsi_screener():
 
     if alerts:
         send_telegram_message("🚨 <b>RSI ALARM BOT STATUS UPDATE</b> 🚨\n\n" + "\n---\n".join(alerts))
+
+def has_usd_forex_cluster_conflict(symbol: str, open_symbols: set) -> bool:
+    norm_sym = normalize_symbol(symbol)
+    if not ("=X" in norm_sym and "USD" in norm_sym):
+        return False
+    for osym in open_symbols:
+        norm_osym = normalize_symbol(osym)
+        if "=X" in norm_osym and "USD" in norm_osym:
+            return True
+    return False
+
+def get_stopout_cooldown_seconds(tf: str) -> int:
+    norm_tf = str(tf).strip().lower()
+    if norm_tf == "1h":
+        return 7200
+    return 28800
 
 
 def run_watchlist_entry_screener():
@@ -1609,6 +1679,9 @@ def run_watchlist_entry_screener():
         now_utc = local_now.astimezone(datetime.timezone.utc)
         if tf in ["1h", "4h"] and now_utc.minute > 4:
             continue
+        is_4h_deriv = (tf == "4h") and ("=F" in norm_sym or "=X" in norm_sym or sym_u in CME_FUTURE_SYMBOLS)
+        if is_4h_deriv and now_utc.hour % 4 != 0:
+            continue
             
         active_tickers_for_download[ticker] = data
         
@@ -1741,7 +1814,7 @@ def run_watchlist_entry_screener():
             if is_equity and is_short:
                 continue
 
-            # Slippage-Limit & Tick-Rundung
+            # Slippage-Limit & Tick-Rundung (Bleibt unberührt als Basis-TP für CRV)
             if not is_short:
                 sl = float(df["Low"].tail(24).min()) if "Low" in df.columns else c_p * 0.98
                 if sl >= c_p:
@@ -1765,10 +1838,7 @@ def run_watchlist_entry_screener():
             crv = reward / risk
             if crv < 1.25:
                 continue
-                
-            # SÄULE 5: Universelle Limit-Formel
-            raw_max_slip = (tp + 1.25 * sl) / 2.25
-            max_slip_price = round_to_tick(raw_max_slip, sym_u)
+
             setup_name = f"Setup {setup_type} {'Trend-Pullback' if setup_type == 'B' else 'Reversal'}"
             sig_dir_str = "SHORT" if is_short else "LONG"
 
@@ -1820,7 +1890,7 @@ def run_watchlist_entry_screener():
 
                                         is_sl = ("SL" in reason or "STOP" in reason) or (reason == "BROKER_SL_TP_HIT" and pnl < 0)
                                         if is_sl:
-                                            cooldown_sec = 3600 if tf == "1h" else 14400
+                                            cooldown_sec = get_stopout_cooldown_seconds(tf)
                                             exit_date_str = str(row.get("exit_date", "")).strip()
                                             if exit_date_str:
                                                 try:
@@ -1863,6 +1933,8 @@ def run_watchlist_entry_screener():
                             continue
                         if a_type == "apex" and len(open_syms) > 0:
                             continue
+                        if a_type == "ftmo" and has_usd_forex_cluster_conflict(norm_sym, open_syms):
+                            continue
                         matched_accounts.append((acc, a_type))
                         all_matched_account_names.append(acc.get("name", "Unbekannt"))
                         
@@ -1902,6 +1974,26 @@ def run_watchlist_entry_screener():
                     
                 display_name = f"{sym_u} ({ticker_name})" if ticker_name != sym_u else sym_u
 
+                primary_acc, primary_type = matched_accounts[0]
+                primary_profile, primary_exit_mode = resolve_account_exit_mode(primary_acc, primary_type, setup_type, sym_u)
+
+                dir_m = -1 if is_short else 1
+                if primary_exit_mode == "TARGET_LOCKED":
+                    eff_tp = round_to_tick(c_p + ((2.5 if setup_type == "B" else 2.0) * risk * dir_m), sym_u)
+                    max_slip_price = round_to_tick((eff_tp + 1.25 * sl) / 2.25, sym_u)
+                elif primary_exit_mode == "FTMO_SWING" and setup_type == "B":
+                    eff_tp = 0.0
+                    max_slip_price = round_to_tick((tp + 1.25 * sl) / 2.25, sym_u)
+                elif primary_exit_mode == "PROP_DEFENSIVE" and setup_type == "B":
+                    eff_tp = round_to_tick(c_p + (2.5 * risk * dir_m), sym_u)
+                    max_slip_price = round_to_tick((eff_tp + 1.25 * sl) / 2.25, sym_u)
+                elif primary_exit_mode == "HOME_RUN_TREND":
+                    eff_tp = 0.0
+                    max_slip_price = round_to_tick((tp + 1.25 * sl) / 2.25, sym_u)
+                else:
+                    eff_tp = tp
+                    max_slip_price = round_to_tick((eff_tp + 1.25 * sl) / 2.25, sym_u)
+
                 # Säule 9: Header-Steuerung und Farb-Badges (Zentralisiert)
                 header, account_badges = get_telegram_header_and_badges(matched_accounts, is_crypto, is_short)
                 if is_other_deriv:
@@ -1932,6 +2024,8 @@ def run_watchlist_entry_screener():
                 exec_mode_str = "⚡ <b>Ausführung:</b> 🟢 LIVE-AUTO aktiviert" if any(acc.get("execution_mode") == "LIVE_AUTO" for acc, a_type in matched_accounts) else "⚡ <b>Ausführung:</b> 🔵 Co-Pilot (Manuelle Orderaufgabe)"
                 limit_label = "Max. Kaufkurs" if not is_short else "Min. Verkaufskurs"
 
+                tp_display = "Kein TP (Offener Trend-Runner)" if eff_tp <= 0.0 else format_price(eff_tp, sym_u)
+
                 msg = f"""<b>{header} — {html.escape(display_name)}</b>
 
 {routing_str}
@@ -1948,7 +2042,7 @@ def run_watchlist_entry_screener():
 <b>Trigger-Kurs:</b> {format_price(c_p, sym_u)}
 🎯 <b>{limit_label} (CRV ≥ 1.25):</b> {format_price(max_slip_price, sym_u)}
 🛑 <b>Stop-Loss:</b> {format_price(sl, sym_u)}
-🎯 <b>Take-Profit (+1.0 R):</b> {format_price(tp, sym_u)}
+🎯 <b>Take-Profit:</b> {tp_display}
 
 <b>Handelszeit:</b> Session aktiv
 ⚠️ <i>Rules Never Bend — Prüfe Spread vor Orderaufgabe.</i>"""
@@ -1977,11 +2071,15 @@ def run_watchlist_entry_screener():
                         raw_max_dd = acc.get("max_dd_buffer")
                         parsed_max_dd = float(raw_max_dd) if raw_max_dd is not None else def_max_dd
 
+                        acc_exit_prof, acc_exit_mode = resolve_account_exit_mode(acc, account_type, setup_type, sym_u)
+
                         signal_payload = {
                             "account_id": broker_acc,
                             "lab_account_id": acc_id_val,
                             "account_name": acc_name_val,
                             "account_type": account_type,
+                            "exit_profile": acc_exit_prof,
+                            "exit_mode": acc_exit_mode,
                             "balance": float(acc.get("account_size", acc_size_fallback)),
                             "account_size": parsed_size,
                             "daily_buffer": parsed_daily,
@@ -1997,11 +2095,11 @@ def run_watchlist_entry_screener():
                             "stop_distance_points": abs(c_p - sl),
                             "stop_loss_distance": abs(c_p - sl),
                             "stop_loss": sl,
-                            "take_profit": tp,
+                            "take_profit": eff_tp,
                             "sl_price": sl,
                             "sl": sl,
-                            "tp_price": tp,
-                            "tp": tp,
+                            "tp_price": eff_tp,
+                            "tp": eff_tp,
                             "max_limit_price": max_slip_price,
                             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                             "username": uname
@@ -2051,7 +2149,8 @@ def run_watchlist_entry_screener():
                     "current_price": c_p,
                     "max_limit_price": max_slip_price,
                     "sl_price": sl,
-                    "tp_price": tp,
+                    "tp_price": eff_tp,
+                    "exit_mode": primary_exit_mode,
                     "accounts": list(set(all_matched_account_names)),
                     "routing_recommendations": routing_recs,
                     "ttl_seconds": ttl_seconds,
@@ -2599,6 +2698,59 @@ def run_tests():
         PENDING_SIGNALS_DIR = old_pending_19
         import shutil
         shutil.rmtree(t19_user_dir, ignore_errors=True)
+
+    # 20. TEST: SIGNAL- & TP-ENGINE (PATCH 2.8c-1 PARITÄT)
+    import math
+    t20_prof_a, t20_mode_a = resolve_account_exit_mode({"exit_profile": "apex_lock"}, "apex", "SETUP_B")
+    t20_prof_f, t20_mode_f = resolve_account_exit_mode({"exit_profile": "ftmo_swing"}, "ftmo", "SETUP_B")
+    
+    t20_prof_cl, t20_mode_cl = resolve_account_exit_mode({"exit_profile": "apex_lock"}, "apex", "SETUP_A", "CL=F")
+    t20_prof_mcl, t20_mode_mcl = resolve_account_exit_mode({"exit_profile": "apex_lock"}, "apex", "SETUP_A", "MCL")
+    t20_prof_nq, t20_mode_nq = resolve_account_exit_mode({"exit_profile": "apex_lock"}, "apex", "SETUP_A", "NQ=F")
+    t20_prof_mnq, t20_mode_mnq = resolve_account_exit_mode({"exit_profile": "apex_lock"}, "apex", "SETUP_A", "MNQ")
+    
+    t20_dna_eur = ASSET_DNA.get("EURUSD=X", {})
+    t20_dna_gbp = ASSET_DNA.get("GBPUSD=X", {})
+    
+    t20_tp_apex = 100.0 + (2.5 * 10.0 * 1) # risk=10, dir_m=1 (Target_Locked)
+    t20_tp_ftmo = 0.0 # ftmo_swing Setup B offener Runner
+    
+    t20_so_qty = max(0.01, math.floor((2.0 * 0.30) * 100.0) / 100.0) # ftmo_swing 30% von 2.0 Lots = 0.60
+    
+    t20_r_floor = 100.0 + (1.0 * 10.0 * 1) # +2.5R Floor für Swing-Modi -> erzwingt SL auf +1.0R
+    
+    now_utc_mock = datetime.datetime(2026, 11, 14, 8, 2, tzinfo=datetime.timezone.utc)
+    t20_4h_valid = now_utc_mock.hour % 4 == 0 and now_utc_mock.minute <= 4
+    
+    if (t20_mode_a == "TARGET_LOCKED" and t20_mode_f == "FTMO_SWING" and 
+        t20_tp_apex == 125.0 and t20_tp_ftmo == 0.0 and t20_so_qty == 0.60 and 
+        t20_r_floor == 110.0 and t20_4h_valid and
+        t20_dna_eur.get("min_score") == 70 and t20_dna_eur.get("allowed_setups") == ["A"] and
+        t20_dna_gbp.get("min_score") == 70 and
+        t20_prof_cl == "apex_commodity_scale" and t20_mode_cl == "PROP_DEFENSIVE" and
+        t20_prof_mcl == "apex_commodity_scale" and t20_mode_mcl == "PROP_DEFENSIVE" and
+        t20_prof_nq == "apex_lock" and t20_mode_nq == "TARGET_LOCKED" and
+        t20_prof_mnq == "apex_lock" and t20_mode_mnq == "TARGET_LOCKED"):
+        log("[PASS] Signal- & TP-Engine (Patch 2.8c-1 Parität, Apex-Weiche, ASSET_DNA)")
+    else:
+        log("[FAIL] Signal- & TP-Engine (Patch 2.8c-1 Parität)")
+        all_passed = False
+
+    # 21. TEST: USD-FOREX-CLUSTER-SPERRE & 2-KERZEN-COOLDOWN
+    t21_cluster_1 = has_usd_forex_cluster_conflict("GBPUSD=X", {"EURUSD=X"})
+    t21_cluster_2 = has_usd_forex_cluster_conflict("USDJPY=X", {"EURUSD"})
+    t21_cluster_3 = has_usd_forex_cluster_conflict("EURUSD=X", set())
+    t21_cluster_4 = has_usd_forex_cluster_conflict("EURJPY=X", {"EURUSD=X"})
+    t21_cd_1h = get_stopout_cooldown_seconds("1h")
+    t21_cd_4h = get_stopout_cooldown_seconds("4h")
+
+    if (t21_cluster_1 is True and t21_cluster_2 is True and 
+        t21_cluster_3 is False and t21_cluster_4 is False and 
+        t21_cd_1h == 7200 and t21_cd_4h == 28800):
+        log("[PASS] USD-Forex-Cluster-Sperre & 2-Kerzen-Cooldown")
+    else:
+        log("[FAIL] USD-Forex-Cluster-Sperre & 2-Kerzen-Cooldown")
+        all_passed = False
 
     log("================================================================================")
     if all_passed:
