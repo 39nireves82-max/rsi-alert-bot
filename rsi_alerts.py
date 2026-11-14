@@ -784,6 +784,17 @@ def check_open_trades(user_dir: str):
     config_file = os.path.join(user_dir, "ticker_config.json")
     alert_state_file = os.path.join(user_dir, "alert_state.json")
 
+    is_killed, _ = check_kill_switch_active()
+    if is_killed:
+        if not _KILL_SWITCH_NOTIFIED[0]:
+            send_telegram_message("🛑 <b>NOTAUS AKTIV (KILL_SWITCH erkannt)</b>\nSignal-Scanner & Spooler pausieren bis zur manuellen Freigabe.")
+            _KILL_SWITCH_NOTIFIED[0] = True
+        return [], {}, alert_state_file
+    else:
+        if _KILL_SWITCH_NOTIFIED[0]:
+            send_telegram_message("🟢 <b>NOTAUS AUFGEHOBEN</b>\nSignal-Scanner & Spooler wieder voll aktiv.")
+            _KILL_SWITCH_NOTIFIED[0] = False
+
     if not os.path.exists(journal_file):
         return [], {}, alert_state_file
 
@@ -2166,6 +2177,21 @@ def run_watchlist_entry_screener():
         except Exception as e:
             log(f"Fehler bei Screener {sym_u}: {e}")
 
+_KILL_SWITCH_NOTIFIED = [False]
+
+def check_kill_switch_active() -> tuple[bool, str]:
+    paths = [
+        os.path.join(BASE_DIR, "KILL_SWITCH"),
+        os.path.join(PARENT_DIR, "Trading Dashboard", "KILL_SWITCH"),
+        os.path.join(PARENT_DIR, "KILL_SWITCH"),
+        "/app/Trading Dashboard/KILL_SWITCH",
+        "/app/KILL_SWITCH"
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return True, p
+    return False, ""
+
 # Hauptfunktion: Kontinuierlicher Trade-Copilot
 def main():
     log(f"🤖 Multi-Tenant Trade-Copilot gestartet (Polling: {POLLING_INTERVAL}s | USERS_DIR: {USERS_DIR}).")
@@ -2173,6 +2199,17 @@ def main():
 
     try:
         while True:
+            is_killed, _ = check_kill_switch_active()
+            if is_killed:
+                if not _KILL_SWITCH_NOTIFIED[0]:
+                    send_telegram_message("🛑 <b>NOTAUS AKTIV (KILL_SWITCH erkannt)</b>\nSignal-Scanner & Spooler pausieren bis zur manuellen Freigabe.")
+                    _KILL_SWITCH_NOTIFIED[0] = True
+                time.sleep(POLLING_INTERVAL)
+                continue
+            else:
+                if _KILL_SWITCH_NOTIFIED[0]:
+                    send_telegram_message("🟢 <b>NOTAUS AUFGEHOBEN</b>\nSignal-Scanner & Spooler wieder voll aktiv.")
+                    _KILL_SWITCH_NOTIFIED[0] = False
             try:
                 if not os.path.exists(USERS_DIR):
                     log(f"[{get_berlin_now().strftime('%H:%M:%S')}] USERS_DIR ({USERS_DIR}) nicht gefunden. Warte...")
@@ -2750,6 +2787,24 @@ def run_tests():
         log("[PASS] USD-Forex-Cluster-Sperre & 2-Kerzen-Cooldown")
     else:
         log("[FAIL] USD-Forex-Cluster-Sperre & 2-Kerzen-Cooldown")
+        all_passed = False
+
+    # 22. TEST: KILL-SWITCH GUARD
+    t22_ks_path = os.path.join(BASE_DIR, "KILL_SWITCH")
+    try:
+        with open(t22_ks_path, "w") as f:
+            f.write("LOCK")
+        t22_active, t22_found_path = check_kill_switch_active()
+        os.remove(t22_ks_path)
+        t22_inactive, _ = check_kill_switch_active()
+        
+        if t22_active and not t22_inactive and t22_found_path == t22_ks_path:
+            log("[PASS] Kill-Switch Guard (Aktivierung & Deaktivierung)")
+        else:
+            log(f"[FAIL] Kill-Switch Guard (Aktiv={t22_active}, Inaktiv={t22_inactive})")
+            all_passed = False
+    except Exception as e:
+        log(f"[FAIL] Kill-Switch Guard (Dateifehler: {e})")
         all_passed = False
 
     log("================================================================================")
