@@ -155,12 +155,14 @@ def is_in_entry_blackout(sym: str, account_type: str, ny_dt: datetime.datetime, 
     is_energy = sym_u in ["CL=F", "MCL", "NG=F", "QG"] or norm_sym in ["CL=F", "NG=F"]
     is_forex = "=X" in norm_sym or "DX-Y" in norm_sym
     
+    is_fx_fut = sym_u in ["6E=F", "M6E", "M6E=F", "6E"] or norm_sym in ["6E=F"]
+    
     ny_time = ny_dt.time()
     b_time = berlin_dt.time()
     is_ny_weekday = ny_dt.weekday() < 5
     
-    # 1. US-Makro (Mo-Fr 08:25 - 08:40 ET) für Indizes & Forex
-    if (is_index_fut or is_forex) and is_ny_weekday:
+    # 1. US-Makro (Mo-Fr 08:25 - 08:40 ET) für Indizes, Forex & Währungs-Futures
+    if (is_index_fut or is_forex or is_fx_fut) and is_ny_weekday:
         if datetime.time(8, 25) <= ny_time <= datetime.time(8, 40):
             return True, "US_MACRO_BLACKOUT"
             
@@ -186,6 +188,10 @@ def is_in_entry_blackout(sym: str, account_type: str, ny_dt: datetime.datetime, 
     if account_type == "ftmo" and berlin_dt.weekday() == 4:
         if b_time >= datetime.time(21, 15):
             return True, "FTMO_WEEKEND_BLACKOUT"
+    # 5. EOD-Futures Re-Entry Sperre (Mo-Fr 21:50 - 23:00 MEZ/MESZ)
+    if account_type == "eod_futures" and berlin_dt.weekday() < 5:
+        if datetime.time(21, 50) <= b_time <= datetime.time(23, 0):
+            return True, "EOD_FUTURES_EOD_BLACKOUT"
             
     return False, ""
 
@@ -267,6 +273,7 @@ def resolve_ticker_name(symbol: str, config: dict = None) -> str:
         "SI=F": "Silber", "SIL": "Silber",
         "NG=F": "Erdgas", "QG": "Erdgas", "QG=F": "Erdgas",
         "HG=F": "Kupfer", "MHG": "Kupfer", "MHG=F": "Kupfer",
+        "6E=F": "Micro Euro FX", "M6E": "Micro Euro FX", "M6E=F": "Micro Euro FX", "6E": "Micro Euro FX",
         "EURUSD=X": "EUR/USD", "GBPUSD=X": "GBP/USD", "USDJPY=X": "USD/JPY",
         "EURJPY=X": "EUR/JPY", "AUDUSD=X": "AUD/USD", "USDCAD=X": "USD/CAD",
         "USDCHF=X": "USD/CHF", "DX-Y.NYB": "US Dollar Index", "DX-Y": "US Dollar Index"
@@ -453,6 +460,7 @@ SYMBOL_ALIAS_MAP = {
     "MGC": "GC=F", "MGC=F": "GC=F",
     "QG": "NG=F", "QG=F": "NG=F",
     "SIL": "SI=F",
+    "M6E": "6E=F", "M6E=F": "6E=F", "6E": "6E=F",
     "EURUSD": "EURUSD=X", "EUR=X": "EURUSD=X",
     "GBPUSD": "GBPUSD=X", "GBP=X": "GBPUSD=X",
     "USDJPY": "USDJPY=X", "JPY=X": "USDJPY=X",
@@ -463,20 +471,22 @@ CME_FUTURE_SYMBOLS = {
     "YM=F", "MYM", "MYM=F", "RTY=F", "M2K", "M2K=F",
     "CL=F", "MCL", "MCL=F", "NG=F", "QG", "QG=F",
     "GC=F", "MGC", "MGC=F", "SI=F", "SIL",
+    "6E=F", "M6E", "M6E=F", "6E",
 }
 
 ENERGY_FUTURE_SYMBOLS = {"CL=F", "MCL", "MCL=F", "NG=F", "QG", "QG=F"}
 
 ASSET_DNA = {
-    "NQ=F": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.25, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "NQ=F": {"tf": "1h", "session": (15, 30, 20, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.25, "decimals": 2, "rsi_bounds": (30, 70), "tz": "Europe/Berlin", "max_sl_points": 62.5},
     "ES=F": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.25, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
     "YM=F": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 1.0, "decimals": 0, "rsi_bounds": (30, 70), "tz": "America/New_York"},
     "RTY=F": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.10, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
     "EURUSD=X": {"tf": "1h", "session": (7, 0, 12, 0), "min_score": 70, "allowed_setups": ["A"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70), "tz": "America/New_York"},
     "GBPUSD=X": {"tf": "4h", "session": (8, 0, 20, 30), "min_score": 70, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70), "tz": "Europe/Berlin"},
     "USDJPY=X": {"tf": "4h", "session": (8, 0, 20, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.001, "decimals": 3, "rsi_bounds": (30, 70), "tz": "Europe/Berlin"},
-    "CL=F": {"tf": "4h", "session": (8, 30, 11, 30), "min_score": 65, "allowed_setups": ["A", "B"], "desk": "Privat Rohstoffe", "tick": 0.01, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
-    "GC=F": {"tf": "1h", "session": (9, 0, 15, 0), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Privat Rohstoffe", "tick": 0.10, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
+    "CL=F": {"tf": "4h", "session": (9, 0, 18, 0), "min_score": 70, "allowed_setups": ["A", "B"], "desk": "Privat Rohstoffe", "tick": 0.01, "decimals": 2, "rsi_bounds": (30, 70), "tz": "Europe/Berlin", "max_sl_points": 2.50},
+    "GC=F": {"tf": "1h", "session": (9, 0, 18, 0), "min_score": 65, "allowed_setups": ["B"], "desk": "Privat Rohstoffe", "tick": 0.10, "decimals": 2, "rsi_bounds": (30, 70), "tz": "Europe/Berlin", "max_sl_points": 25.0},
+    "6E=F": {"tf": "4h", "session": (13, 0, 18, 0), "min_score": 65, "allowed_setups": ["A", "B"], "desk": "Prop Futures", "tick": 0.00005, "decimals": 5, "rsi_bounds": (30, 70), "tz": "Europe/Berlin", "max_sl_points": 0.0160},
     "GERMAN_EQUITY": {"tf": "4h", "session": (9, 0, 17, 30), "min_score": 70, "allowed_setups": ["B"], "desk": "Privat Swing", "tick": 0.01, "decimals": 2, "rsi_bounds": (35, 70), "tz": "Europe/Berlin"},
     "DEFAULT_FOREX": {"tf": "4h", "session": (8, 0, 20, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "FTMO / Forex", "tick": 0.00001, "decimals": 5, "rsi_bounds": (30, 70), "tz": "Europe/Berlin"},
     "DEFAULT_FUTURE": {"tf": "1h", "session": (9, 30, 15, 30), "min_score": 60, "allowed_setups": ["A", "B"], "desk": "Apex Prop", "tick": 0.25, "decimals": 2, "rsi_bounds": (30, 70), "tz": "America/New_York"},
@@ -521,6 +531,10 @@ def resolve_account_type(acc_key: str, acc: dict) -> str:
     raw_prof = acc.get("broker_profile", "").lower()
     raw_name = acc.get("name", "").lower()
     raw_key = acc_key.lower()
+
+    eod_terms = ("eod_futures", "eod futures", "eod-futures", "mffu", "tradeify")
+    if any(term in x for x in [raw_type, raw_prof, raw_name, raw_key] for term in eod_terms):
+        return "eod_futures"
     
     if any("apex" in x for x in [raw_type, raw_prof, raw_name, raw_key]):
         return "apex"
@@ -529,7 +543,7 @@ def resolve_account_type(acc_key: str, acc: dict) -> str:
     return "private"
 
 def resolve_account_exit_mode(acc: dict, account_type: str, setup_type: str, symbol: str = "") -> tuple[str, str]:
-    if account_type == "apex":
+    if account_type in ["apex", "eod_futures"]:
         fallback = "apex_lock"
     elif account_type == "ftmo":
         fallback = "ftmo_swing"
@@ -586,6 +600,11 @@ def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, 
             apex_master_kader = ["NQ=F", "MNQ", "CL=F", "MCL"]
             if sym_u_check not in apex_master_kader and norm_sym_check not in apex_master_kader:
                 return False, ""
+        elif account_type == "eod_futures":
+            eod_futures_kader = ["6E=F", "M6E", "GC=F", "MGC", "CL=F", "MCL", "NQ=F", "MNQ"]
+            if sym_u_check not in eod_futures_kader and norm_sym_check not in eod_futures_kader:
+                return False, ""    
+        
         elif account_type == "ftmo":
             ftmo_forex_kader = ["EURUSD=X", "GBPUSD=X", "USDJPY=X"]
             if not is_forex_check and sym_u_check not in ftmo_forex_kader and norm_sym_check not in ftmo_forex_kader:
@@ -645,6 +664,8 @@ def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, 
         return False, ""
         
     # 5. Setup-Check
+    if dna and "allowed_setups" in dna and setup_type not in dna["allowed_setups"]:
+        return False, ""
     acc_allowed = acc.get("allowed_setups", ["A", "B"])
     if setup_type not in acc_allowed:
         return False, ""
@@ -655,7 +676,7 @@ def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, 
 def should_spool_signal(acc: dict, account_type: str, is_crypto: bool) -> bool:
     """Spooler-Queue Brandmauer (Säule 7)."""
     return (acc.get("execution_mode") == "LIVE_AUTO" and 
-            account_type in ["apex", "ftmo"] and 
+            account_type in ["apex", "eod_futures", "ftmo"] and 
             not is_crypto)
 
 
@@ -672,7 +693,7 @@ def get_telegram_header_and_badges(matched_accounts: list, is_crypto: bool, is_s
     account_badges = []
     for acc, a_type in matched_accounts:
         emode = acc.get("execution_mode", "CO_PILOT")
-        if emode == "LIVE_AUTO" and a_type in ["apex", "ftmo"]:
+        if emode == "LIVE_AUTO" and a_type in ["apex", "eod_futures", "ftmo"]:
             badge = "🟢 [LIVE-AUTO]"
         elif emode == "EXPERIMENT":
             badge = "🧪 [EXPERIMENT]"
@@ -892,7 +913,15 @@ def check_open_trades(user_dir: str):
                 matched_acc_id = a_id
                 break
                 
-        acc_type = resolve_account_type(matched_acc_id, matched_acc) if matched_acc else ("apex" if "apex" in acc_name_raw.lower() else ("ftmo" if "ftmo" in acc_name_raw.lower() else "private"))
+        eod_kw = ("eod_futures", "eod futures", "eod-futures", "mffu", "tradeify")
+        acc_name_low = acc_name_raw.lower()
+        acc_type = resolve_account_type(matched_acc_id, matched_acc) if matched_acc else (
+            "eod_futures" if any(k in acc_name_low for k in eod_kw) else (
+                "apex" if "apex" in acc_name_low else (
+                    "ftmo" if "ftmo" in acc_name_low else "private"
+                )
+            )
+        )
 
         # Säule 9: Defensive Journal-Absicherung (striktes Dictionary-Fallback)
         raw_exit = trade.get("exit_mode")
@@ -901,10 +930,11 @@ def check_open_trades(user_dir: str):
         if exit_mode == "TRAILING_STOP" or not exit_mode:
             _, exit_mode = resolve_account_exit_mode(matched_acc or {}, acc_type, str(trade.get("setup_type", "")), sym)
 
-        is_live_auto_prop = bool(matched_acc and matched_acc.get("execution_mode") == "LIVE_AUTO" and acc_type in ["apex", "ftmo"])
+        is_live_auto_prop = bool(matched_acc and matched_acc.get("execution_mode") == "LIVE_AUTO" and acc_type in ["apex", "eod_futures", "ftmo"])
         
-        is_apex_acc = (acc_type == "apex") or ("apex" in acc_name_raw.lower()) or (exit_profile in ["apex_lock", "apex_commodity_scale"])
-        is_ftmo_acc = (acc_type == "ftmo") or ("ftmo" in acc_name_raw.lower())
+        is_eod_futures_acc = (acc_type == "eod_futures") or any(k in acc_name_low for k in eod_kw)
+        is_apex_acc = (not is_eod_futures_acc) and ((acc_type == "apex") or ("apex" in acc_name_low) or (exit_profile in ["apex_lock", "apex_commodity_scale"]))
+        is_ftmo_acc = (acc_type == "ftmo") or ("ftmo" in acc_name_low)
 
         is_cme_future = (
             ("=F" in norm_sym)
@@ -950,6 +980,15 @@ def check_open_trades(user_dir: str):
                 trigger_auto_close = True
                 reason_str = "EOD_Close (Apex-Wartung)"
 
+        # 2b. EOD-Futures (MFFU / Tradeify — 22:00 MEZ Hard-Flatten)
+        if is_eod_futures_acc and is_cme_future:
+            if is_ny_weekday and is_early_close and datetime.time(12, 45) <= ny_time <= datetime.time(12, 58):
+                trigger_auto_close = True
+                reason_str = "EOD_Close (EOD-Futures Early)"
+            elif berlin_dt.weekday() < 5 and not is_early_close and datetime.time(22, 0) <= b_time <= datetime.time(22, 55):
+                trigger_auto_close = True
+                reason_str = "EOD_Close (22:00 MEZ)"
+
         # 3. FTMO Devisen (Freitags-Wochenendschluss MEZ)
         if is_ftmo_acc and berlin_dt.weekday() == 4:
             if datetime.time(21, 30) <= b_time <= datetime.time(21, 55):
@@ -959,7 +998,7 @@ def check_open_trades(user_dir: str):
         # --- ZWEISTUFIGER IDEMPOTENZ- & SPOOLER-RIEGEL FÜR FLATTEN_POSITION ---
         if trigger_auto_close:
             if matched_acc and matched_acc.get("execution_mode") == "LIVE_AUTO":
-                if acc_type in ["apex", "ftmo"]:
+                if acc_type in ["apex", "eod_futures", "ftmo"]:
                     # Pfad A: LIVE_AUTO (Physisches Spooling statt CSV-Phantom-Close)
                     username = os.path.basename(os.path.normpath(user_dir))
                     
@@ -1200,7 +1239,7 @@ def check_open_trades(user_dir: str):
                 
                 if matched_acc and matched_acc.get("execution_mode") == "LIVE_AUTO":
                     acc_type = resolve_account_type(matched_acc_id, matched_acc)
-                    if acc_type in ["apex", "ftmo"] and not is_crypto:
+                    if acc_type in ["apex", "eod_futures", "ftmo"] and not is_crypto:
                         scale_out_executed = False
                         if current_r >= be_threshold and exit_mode in ["PROP_DEFENSIVE", "DEFENSIVE_EMERGENCY", "FTMO_SWING"]:
                             import math
@@ -1208,7 +1247,7 @@ def check_open_trades(user_dir: str):
                             close_qty = 0.0
                             runner_qty = 0.0
                             
-                            if acc_type == "apex":
+                            if acc_type in ["apex", "eod_futures"]:
                                 if abs(position_size - round(position_size)) < 1e-6 and int(round(position_size)) >= 2:
                                     is_divisible = True
                                     close_qty = float(int(round(position_size)) // 2)
@@ -1579,6 +1618,7 @@ def run_watchlist_entry_screener():
             stammkader_syms.update({str(data.get("symbol", "")).strip().upper()}) if "symbol" in data else stammkader_syms.update({str(item.get("symbol", item) if isinstance(item, dict) else item).strip().upper() for v in data.values() if isinstance(v, list) for item in v})
         elif isinstance(data, list):
             stammkader_syms.update({str(item.get("symbol", item) if isinstance(item, dict) else item).strip().upper() for item in data})
+    stammkader_syms.update({"6E=F", "GC=F", "CL=F", "NQ=F"})
     stammkader_syms.discard("")
 
     user_tickers: dict[str, dict] = {}
@@ -1678,7 +1718,7 @@ def run_watchlist_entry_screener():
             if curr_minutes < start_minutes or curr_minutes > end_minutes:
                 continue
                 
-            CME_MICROS = {"MNQ", "MES", "MYM", "M2K", "MCL", "MGC", "SIL", "QG", "MHG", "NQ", "ES", "YM", "RTY", "CL", "GC", "SI", "NG", "HG"}
+            CME_MICROS = {"MNQ", "MES", "MYM", "M2K", "MCL", "MGC", "SIL", "QG", "MHG", "NQ", "ES", "YM", "RTY", "CL", "GC", "SI", "NG", "HG", "M6E", "6E"}
             is_cme_future = ("=F" in norm_sym or sym_u in CME_MICROS)
             
             # 3. CME Wartungspause (17:00 - 18:00 ET)
@@ -1843,6 +1883,14 @@ def run_watchlist_entry_screener():
             
             if risk == 0:
                 continue
+
+            # Harter Stop-Deckel (max_sl_points aus ASSET_DNA)
+            max_sl_points = dna.get("max_sl_points")
+            if max_sl_points is not None and max_sl_points > 0:
+                sl_decimals = dna.get("decimals", 4)
+                if round(risk, sl_decimals) > max_sl_points:
+                    log(f"🛑 [STOP-DECKEL] {sym_u}: Stop-Breite {risk:.{sl_decimals}f} überschreitet Limit {max_sl_points:.{sl_decimals}f} -> Signal übersprungen.")
+                    continue
                 
             # SÄULE 5: Initial-CRV-Veto
             reward = abs(tp - c_p)
@@ -1944,12 +1992,14 @@ def run_watchlist_entry_screener():
                             continue
                         if a_type == "apex" and len(open_syms) > 0:
                             continue
+                        if a_type == "eod_futures" and len(open_syms) >= 2:
+                            continue
                         if a_type == "ftmo" and has_usd_forex_cluster_conflict(norm_sym, open_syms):
                             continue
                         matched_accounts.append((acc, a_type))
                         all_matched_account_names.append(acc.get("name", "Unbekannt"))
                         
-                PROP_FUTURES_KADER = {"NQ=F", "MNQ", "CL=F", "MCL"}
+                PROP_FUTURES_KADER = {"6E=F", "M6E", "GC=F", "MGC", "CL=F", "MCL", "NQ=F", "MNQ"}
                 PROP_FOREX_KADER = {"EURUSD=X", "GBPUSD=X", "USDJPY=X"}
                 
                 is_prop_future = sym_u in PROP_FUTURES_KADER or norm_sym in PROP_FUTURES_KADER
@@ -2012,13 +2062,13 @@ def run_watchlist_entry_screener():
                     
                 accounts_str = "\n".join(account_badges)
                 
-                has_prop = any(a_type in ["apex", "ftmo"] for acc, a_type in matched_accounts)
+                has_prop = any(a_type in ["apex", "eod_futures", "ftmo"] for acc, a_type in matched_accounts)
                 has_private = any(a_type == "private" for acc, a_type in matched_accounts)
                 
                 routing_blocks = []
                 
                 if is_prop_future:
-                    routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [🏢 Prop-Desk (Apex)]\nℹ️ <i>Auch zulässig für: [👤 Privates Futures-Depot]</i>")
+                    routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [🏢 Prop-Desk (Apex / MFFU EOD)]\nℹ️ <i>Auch zulässig für: [👤 Privates Futures-Depot]</i>")
                 elif is_prop_forex:
                     routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [🏢 Prop-Desk (FTMO)]\nℹ️ <i>Auch zulässig für: [👤 Privates Devisen-Depot]</i>")
                 elif is_other_deriv:
@@ -2070,15 +2120,15 @@ def run_watchlist_entry_screener():
                         acc_id_val = acc.get("id", "")
                         acc_name_val = acc.get("name", acc_id_val)
                         
-                        acc_size_fallback = 100000.0 if account_type == "ftmo" else (50000.0 if account_type == "apex" else 10000.0)
+                        acc_size_fallback = 100000.0 if account_type in ["ftmo", "eod_futures"] else (50000.0 if account_type == "apex" else 10000.0)
                         raw_size = acc.get("account_size")
                         parsed_size = float(raw_size) if raw_size is not None and str(raw_size).replace('.','',1).isdigit() else acc_size_fallback
                         
-                        def_daily = parsed_size * 0.05 if account_type == "ftmo" else 1250.0
+                        def_daily = 0.0 if account_type == "eod_futures" else (parsed_size * 0.05 if account_type == "ftmo" else 1250.0)
                         raw_daily = acc.get("daily_buffer")
                         parsed_daily = float(raw_daily) if raw_daily is not None else def_daily
 
-                        def_max_dd = parsed_size * 0.10 if account_type == "ftmo" else 2500.0
+                        def_max_dd = 3000.0 if account_type == "eod_futures" else (parsed_size * 0.10 if account_type == "ftmo" else 2500.0)
                         raw_max_dd = acc.get("max_dd_buffer")
                         parsed_max_dd = float(raw_max_dd) if raw_max_dd is not None else def_max_dd
 
@@ -2805,6 +2855,179 @@ def run_tests():
             all_passed = False
     except Exception as e:
         log(f"[FAIL] Kill-Switch Guard (Dateifehler: {e})")
+        all_passed = False
+
+    # 23. TEST: MFFU 100K EOD KADER, STOP-DECKEL, BLACKOUT & 22:00 MEZ EOD-FLATTEN
+    t23_part1 = False
+    t23_part2 = False
+    t23_part3 = False
+    t23_part4 = False
+    try:
+        # Teil 1: Alias-Auflösung, ASSET_DNA & Setup-B-Quarantäne
+        t23_specs = [
+            ("M6E", "6E=F", "4h", (13, 0, 18, 0), 65, 0.0160, 0.0161, 0.0160),
+            ("MGC", "GC=F", "1h", (9, 0, 18, 0), 65, 25.0, 25.1, 25.0),
+            ("MCL", "CL=F", "4h", (9, 0, 18, 0), 70, 2.50, 2.51, 2.50),
+            ("MNQ", "NQ=F", "1h", (15, 30, 20, 30), 60, 62.5, 62.75, 62.5),
+        ]
+        t23_dna_checks = []
+        t23_cap_checks = []
+        for alias, canon, exp_tf, exp_sess, exp_score, exp_cap, over_cap, ok_cap in t23_specs:
+            norm_a = normalize_symbol(alias)
+            dna_a = resolve_asset_dna(alias)
+            dna_c = resolve_asset_dna(canon)
+            t23_dna_checks.append(
+                norm_a == canon
+                and dna_a == dna_c
+                and dna_c.get("tf") == exp_tf
+                and dna_c.get("session") == exp_sess
+                and dna_c.get("tz") == "Europe/Berlin"
+                and dna_c.get("min_score") == exp_score
+                and dna_c.get("max_sl_points") == exp_cap
+            )
+            # Teil 2: Harte Stop-Deckel-Prüfung (Grenzwerte)
+            dec = dna_c.get("decimals", 4)
+            cap_val = dna_c.get("max_sl_points", 0)
+            rejected_over = round(over_cap, dec) > cap_val
+            accepted_at = not (round(ok_cap, dec) > cap_val)
+            t23_cap_checks.append(rejected_over and accepted_at)
+
+        dna_gc = resolve_asset_dna("GC=F")
+        t23_gc_quarantine = (dna_gc.get("allowed_setups") == ["B"] and "A" not in dna_gc.get("allowed_setups", []))
+        t23_part1 = all(t23_dna_checks) and t23_gc_quarantine
+        t23_part2 = all(t23_cap_checks)
+
+        # Teil 3: Kontotyp "eod_futures", Exit-Modus, Konto-Audit & Abend-Blackout
+        t23_acc = {
+            "name": "MFFU 100k EOD",
+            "account_type": "eod_futures",
+            "tickers": [],
+            "direction": "both",
+            "min_score": 60,
+            "allowed_setups": ["A", "B"],
+        }
+        t23_acc_type = resolve_account_type("mffu_100k", t23_acc)
+        t23_cl_prof, t23_cl_mode = resolve_account_exit_mode(t23_acc, "eod_futures", "SETUP_A", "CL=F")
+
+        try:
+            t23_tz_ny = zoneinfo.ZoneInfo("America/New_York")
+            t23_tz_ber = zoneinfo.ZoneInfo("Europe/Berlin")
+        except Exception:
+            t23_tz_ny = datetime.timezone(datetime.timedelta(hours=-5))
+            t23_tz_ber = datetime.timezone(datetime.timedelta(hours=1))
+
+        old_ny_23 = globals().get("get_ny_now")
+        old_ber_23 = globals().get("get_berlin_now")
+        try:
+            dt_ny_1545 = datetime.datetime(2026, 11, 25, 9, 45, 0, tzinfo=t23_tz_ny)
+            dt_ber_1545 = datetime.datetime(2026, 11, 25, 15, 45, 0, tzinfo=t23_tz_ber)
+            globals()["get_ny_now"] = lambda: dt_ny_1545
+            globals()["get_berlin_now"] = lambda: dt_ber_1545
+
+            a_6e, t_6e = audit_account_for_signal("mffu_100k", t23_acc, "6E=F", False, 70, "A", dt_ber_1545, resolve_asset_dna("6E=F"))
+            a_gc_b, t_gc_b = audit_account_for_signal("mffu_100k", t23_acc, "GC=F", False, 70, "B", dt_ber_1545, resolve_asset_dna("GC=F"))
+            a_cl, t_cl = audit_account_for_signal("mffu_100k", t23_acc, "CL=F", False, 75, "A", dt_ber_1545, resolve_asset_dna("CL=F"))
+            a_nq, t_nq = audit_account_for_signal("mffu_100k", t23_acc, "NQ=F", False, 65, "A", dt_ber_1545, resolve_asset_dna("NQ=F"))
+
+            # GC=F Setup A muss direkt über audit_account_for_signal abgewiesen werden
+            a_gc_a_audit, _ = audit_account_for_signal("mffu_100k", t23_acc, "GC=F", False, 70, "A", dt_ber_1545, resolve_asset_dna("GC=F"))
+            a_gc_a_rejected = (a_gc_a_audit is False)
+        finally:
+            if old_ny_23:
+                globals()["get_ny_now"] = old_ny_23
+            if old_ber_23:
+                globals()["get_berlin_now"] = old_ber_23
+
+        dt_ny_2155 = datetime.datetime(2026, 11, 25, 15, 55, 0, tzinfo=t23_tz_ny)
+        dt_ber_2155 = datetime.datetime(2026, 11, 25, 21, 55, 0, tzinfo=t23_tz_ber)
+        t23_blk_2155, _ = is_in_entry_blackout("NQ=F", "eod_futures", dt_ny_2155, dt_ber_2155)
+
+        t23_part3 = (
+            t23_acc_type == "eod_futures"
+            and t23_cl_prof == "apex_lock"
+            and t23_cl_mode == "TARGET_LOCKED"
+            and a_6e and t_6e == "eod_futures"
+            and a_gc_b and t_gc_b == "eod_futures"
+            and a_cl and t_cl == "eod_futures"
+            and a_nq and t_nq == "eod_futures"
+            and a_gc_a_rejected
+            and t23_blk_2155 is True
+        )
+
+        # Teil 4: EOD-Flatten-Spooling ab 22:00 Uhr MEZ in check_open_trades()
+        t23_user_dir = tempfile.mkdtemp(prefix="test23_")
+        t23_pending = os.path.join(t23_user_dir, "signals", "01_pending")
+        t23_processing = os.path.join(t23_user_dir, "signals", "02_processing")
+        os.makedirs(t23_pending, exist_ok=True)
+        os.makedirs(t23_processing, exist_ok=True)
+
+        old_pending_23 = PENDING_SIGNALS_DIR
+        old_processing_23 = PROCESSING_SIGNALS_DIR
+        old_ny_23_4 = globals().get("get_ny_now")
+        old_ber_23_4 = globals().get("get_berlin_now")
+        old_price_23 = globals().get("get_current_price")
+
+        PENDING_SIGNALS_DIR = t23_pending
+        PROCESSING_SIGNALS_DIR = t23_processing
+
+        try:
+            t23_cfg = {
+                "lab_accounts": {
+                    "mffu_1": {
+                        "name": "MFFU 100k EOD",
+                        "execution_mode": "LIVE_AUTO",
+                        "account_type": "eod_futures",
+                        "broker_account": "MFFU_DEMO",
+                        "tickers": []
+                    }
+                }
+            }
+            with open(os.path.join(t23_user_dir, "ticker_config.json"), "w", encoding="utf-8") as f:
+                json.dump(t23_cfg, f)
+
+            t23_journal = os.path.join(t23_user_dir, "trade_journal.csv")
+            df23 = pd.DataFrame([{
+                "id": "T23_EOD_FLATTEN", "status": "OPEN", "symbol": "M6E", "account_name": "MFFU 100k EOD",
+                "direction": "Long", "entry_price": 1.10000, "sl_price": 1.09000, "current_sl": 0.0,
+                "position_size": 1.0, "point_value": 12500.0, "fx_rate": 1.0, "est_fees_eur": 2.0,
+                "initial_sl_price": 1.09000
+            }])
+            df23.to_csv(t23_journal, index=False)
+
+            globals()["get_ny_now"] = lambda: datetime.datetime(2026, 11, 25, 16, 2, 0, tzinfo=t23_tz_ny)
+            globals()["get_berlin_now"] = lambda: datetime.datetime(2026, 11, 25, 22, 2, 0, tzinfo=t23_tz_ber)
+            globals()["get_current_price"] = lambda sym, ttl=15: 1.10200
+
+            # Lauf 1
+            check_open_trades(t23_user_dir)
+            files_run1 = [f for f in os.listdir(t23_pending) if "sig_flatten" in f]
+            df23_after = pd.read_csv(t23_journal)
+            t23_still_open = df23_after.iloc[0]["status"] == "OPEN"
+
+            # Lauf 2 (Idempotenz)
+            check_open_trades(t23_user_dir)
+            files_run2 = [f for f in os.listdir(t23_pending) if "sig_flatten" in f]
+
+            t23_part4 = (len(files_run1) == 1 and t23_still_open and len(files_run2) == 1)
+        finally:
+            if old_ny_23_4:
+                globals()["get_ny_now"] = old_ny_23_4
+            if old_ber_23_4:
+                globals()["get_berlin_now"] = old_ber_23_4
+            if old_price_23:
+                globals()["get_current_price"] = old_price_23
+            PENDING_SIGNALS_DIR = old_pending_23
+            PROCESSING_SIGNALS_DIR = old_processing_23
+            import shutil
+            shutil.rmtree(t23_user_dir, ignore_errors=True)
+
+        if t23_part1 and t23_part2 and t23_part3 and t23_part4:
+            log("[PASS] MFFU 100k EOD Kader, Stop-Deckel, Blackout & 22:00 MEZ EOD-Flatten")
+        else:
+            log(f"[FAIL] MFFU 100k EOD (P1:{t23_part1}, P2:{t23_part2}, P3:{t23_part3}, P4:{t23_part4})")
+            all_passed = False
+    except Exception as e:
+        log(f"[FAIL] MFFU 100k EOD (Fehler: {e})")
         all_passed = False
 
     log("================================================================================")
