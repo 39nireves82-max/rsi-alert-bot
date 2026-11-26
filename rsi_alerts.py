@@ -108,6 +108,17 @@ PROCESSING_SIGNALS_DIR = _resolve_dir(
     create_if_missing=True,
 )
 
+AWAITING_APPROVAL_DIR = _resolve_dir(
+    "INVARIX_AWAITING_APPROVAL_DIR",
+    [
+        os.path.join(BASE_DIR, "signals", "05_awaiting_approval"),
+        "/app/signals/05_awaiting_approval",
+        "/data/signals/05_awaiting_approval",
+        os.path.join(PARENT_DIR, "Trading Dashboard", "signals", "05_awaiting_approval"),
+    ],
+    create_if_missing=True,
+)
+
 
 def get_berlin_now() -> datetime.datetime:
     """Liefert die aktuelle Zeit in 'Europe/Berlin' mit deterministischem Offset-Fallback."""
@@ -128,25 +139,92 @@ def get_ny_now() -> datetime.datetime:
         offset = -4 if 3 <= utc_now.month <= 11 else -5
         return utc_now.astimezone(datetime.timezone(datetime.timedelta(hours=offset)))
 
+def get_us_market_day_status(ny_date) -> tuple[str, str]:
+    """Ermittelt deterministisch US-Börsenfeiertage (NYSE/CME) und Early-Close-Brückentage."""
+    d = ny_date.date() if isinstance(ny_date, datetime.datetime) else ny_date
+    y = d.year
+
+    def _nth_weekday(year: int, month: int, weekday: int, n: int) -> datetime.date:
+        first = datetime.date(year, month, 1)
+        offset = (weekday - first.weekday()) % 7
+        return first + datetime.timedelta(days=offset + (n - 1) * 7)
+
+    def _last_weekday(year: int, month: int, weekday: int) -> datetime.date:
+        next_first = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+        last_day = next_first - datetime.timedelta(days=1)
+        offset = (last_day.weekday() - weekday) % 7
+        return last_day - datetime.timedelta(days=offset)
+
+    def _observed(dt_val: datetime.date) -> datetime.date:
+        if dt_val.weekday() == 5:
+            return dt_val - datetime.timedelta(days=1)
+        if dt_val.weekday() == 6:
+            return dt_val + datetime.timedelta(days=1)
+        return dt_val
+
+    def _easter_sunday(year: int) -> datetime.date:
+        a = year % 19
+        b = year // 100
+        c = year % 100
+        d_e = b // 4
+        e = b % 4
+        f = (b + 8) // 25
+        g = (b - f + 1) // 3
+        h = (19 * a + b - d_e - g + 15) % 30
+        i = c // 4
+        k = c % 4
+        l = (32 + 2 * e + 2 * i - h - k) % 7
+        m = (a + 11 * h + 22 * l) // 451
+        month = (h + l - 7 * m + 114) // 31
+        day = ((h + l - 7 * m + 114) % 31) + 1
+        return datetime.date(year, month, day)
+
+    new_year_obs = _observed(datetime.date(y, 1, 1))
+    next_new_year_obs = _observed(datetime.date(y + 1, 1, 1))
+    mlk_day = _nth_weekday(y, 1, 0, 3)
+    presidents_day = _nth_weekday(y, 2, 0, 3)
+    good_friday = _easter_sunday(y) - datetime.timedelta(days=2)
+    memorial_day = _last_weekday(y, 5, 0)
+    juneteenth_obs = _observed(datetime.date(y, 6, 19))
+    ind_day_obs = _observed(datetime.date(y, 7, 4))
+    labor_day = _nth_weekday(y, 9, 0, 1)
+    thanksgiving = _nth_weekday(y, 11, 3, 4)
+    xmas_obs = _observed(datetime.date(y, 12, 25))
+
+    holidays = {
+        new_year_obs,
+        next_new_year_obs,
+        mlk_day,
+        presidents_day,
+        good_friday,
+        memorial_day,
+        juneteenth_obs,
+        ind_day_obs,
+        labor_day,
+        thanksgiving,
+        xmas_obs,
+    }
+
+    early_closes = set()
+    for ec_day in (
+        thanksgiving + datetime.timedelta(days=1),
+        datetime.date(y, 7, 3),
+        datetime.date(y, 12, 24),
+    ):
+        if ec_day.weekday() < 5 and ec_day not in holidays:
+            early_closes.add(ec_day)
+
+    if d in holidays:
+        return "HOLIDAY", "US_MARKET_HOLIDAY"
+    if d in early_closes:
+        return "EARLY_CLOSE", "US_EARLY_CLOSE"
+    return "REGULAR", ""
+
+
 def is_cme_early_close_day(ny_date: datetime.date) -> bool:
     """Prüft, ob der übergebene Tag ein verkürzter CME-Handelstag (Early Close 13:00 ET) ist (Auflage 2)."""
-    month, day = ny_date.month, ny_date.day
-    
-    # Heiligabend (24. Dez), falls Werktag
-    if month == 12 and day == 24 and ny_date.weekday() < 5:
-        return True
-        
-    # Tag vor Independence Day (3. Juli), falls Werktag
-    if month == 7 and day == 3 and ny_date.weekday() < 5:
-        return True
-        
-    # Black Friday (Tag nach Thanksgiving - 4. Donnerstag im Nov)
-    if month == 11 and ny_date.weekday() == 4 and 23 <= day <= 29:
-        return True
-        
-    # Erweiterbar über externe Konfiguration, falls gewünscht
-    return False
-
+    status, _ = get_us_market_day_status(ny_date)
+    return status == "EARLY_CLOSE"
 def is_in_entry_blackout(sym: str, account_type: str, ny_dt: datetime.datetime, berlin_dt: datetime.datetime) -> tuple[bool, str]:
     """Prüft Re-Entry Locks für News und Session-Enden (Auflage 3)."""
     sym_u = str(sym).strip().upper()
@@ -154,13 +232,31 @@ def is_in_entry_blackout(sym: str, account_type: str, ny_dt: datetime.datetime, 
     is_index_fut = sym_u in ["NQ=F", "MNQ", "ES=F", "MES", "YM=F", "MYM", "RTY=F", "M2K"] or norm_sym in ["NQ=F", "ES=F", "YM=F", "RTY=F"]
     is_energy = sym_u in ["CL=F", "MCL", "NG=F", "QG"] or norm_sym in ["CL=F", "NG=F"]
     is_forex = "=X" in norm_sym or "DX-Y" in norm_sym
-    
     is_fx_fut = sym_u in ["6E=F", "M6E", "M6E=F", "6E"] or norm_sym in ["6E=F"]
-    
+
+    is_crypto = is_crypto_symbol(sym_u)
+    eu_suffixes = (".DE", ".SW", ".L", ".F", ".MU", ".AS")
+    is_eu_equity = any(norm_sym.endswith(ext) or sym_u.endswith(ext) for ext in eu_suffixes)
+    is_cme_future = (
+        is_index_fut
+        or is_energy
+        or is_fx_fut
+        or (sym_u in CME_FUTURE_SYMBOLS)
+        or ("=F" in norm_sym)
+    )
+    is_us_equity = not is_crypto and not is_forex and not is_cme_future and not is_eu_equity
+    is_us_relevant = is_cme_future or is_us_equity
+
     ny_time = ny_dt.time()
     b_time = berlin_dt.time()
     is_ny_weekday = ny_dt.weekday() < 5
-    
+
+    us_day_status = "REGULAR"
+    if is_us_relevant:
+        us_day_status, _ = get_us_market_day_status(ny_dt.date())
+        if us_day_status == "HOLIDAY":
+            return True, "US_HOLIDAY_BLACKOUT"
+
     # 1. US-Makro (Mo-Fr 08:25 - 08:40 ET) für Indizes, Forex & Währungs-Futures
     if (is_index_fut or is_forex or is_fx_fut) and is_ny_weekday:
         if datetime.time(8, 25) <= ny_time <= datetime.time(8, 40):
@@ -188,10 +284,20 @@ def is_in_entry_blackout(sym: str, account_type: str, ny_dt: datetime.datetime, 
     if account_type == "ftmo" and berlin_dt.weekday() == 4:
         if b_time >= datetime.time(21, 15):
             return True, "FTMO_WEEKEND_BLACKOUT"
-    # 5. EOD-Futures Re-Entry Sperre (Mo-Fr 21:50 - 23:00 MEZ/MESZ)
-    if account_type == "eod_futures" and berlin_dt.weekday() < 5:
-        if datetime.time(21, 50) <= b_time <= datetime.time(23, 0):
+
+    # 5. EOD-Futures Re-Entry Sperre (Mo-Fr Early Close & 15:50 - 17:00 ET / US-Zeit verankert)
+    if account_type == "eod_futures" and is_ny_weekday:
+        if is_cme_early_close_day(ny_dt.date()) and datetime.time(12, 40) <= ny_time <= datetime.time(17, 0):
+            return True, "EOD_FUTURES_EARLY_CLOSE_BLACKOUT"
+        if datetime.time(15, 50) <= ny_time <= datetime.time(17, 0):
             return True, "EOD_FUTURES_EOD_BLACKOUT"
+
+    # 6. Allgemeiner US-Early-Close-Schutz (US-Aktien ab 12:40 ET & übrige US-Futures 12:40 - 17:00 ET)
+    if is_us_relevant and us_day_status == "EARLY_CLOSE":
+        if is_us_equity and ny_time >= datetime.time(12, 40):
+            return True, "US_EARLY_CLOSE_BLACKOUT"
+        if is_cme_future and datetime.time(12, 40) <= ny_time <= datetime.time(17, 0):
+            return True, "US_EARLY_CLOSE_BLACKOUT"
             
     return False, ""
 
@@ -675,7 +781,8 @@ def audit_account_for_signal(acc_key: str, acc: dict, sym: str, is_short: bool, 
 
 def should_spool_signal(acc: dict, account_type: str, is_crypto: bool) -> bool:
     """Spooler-Queue Brandmauer (Säule 7)."""
-    return (acc.get("execution_mode") == "LIVE_AUTO" and 
+    emode = str(acc.get("execution_mode", "")).strip().upper()
+    return (emode in ["LIVE_AUTO", "SEMI_AUTO"] and 
             account_type in ["apex", "eod_futures", "ftmo"] and 
             not is_crypto)
 
@@ -692,9 +799,11 @@ def get_telegram_header_and_badges(matched_accounts: list, is_crypto: bool, is_s
         
     account_badges = []
     for acc, a_type in matched_accounts:
-        emode = acc.get("execution_mode", "CO_PILOT")
+        emode = str(acc.get("execution_mode", "CO_PILOT")).strip().upper()
         if emode == "LIVE_AUTO" and a_type in ["apex", "eod_futures", "ftmo"]:
             badge = "🟢 [LIVE-AUTO]"
+        elif emode == "SEMI_AUTO" and a_type in ["apex", "eod_futures", "ftmo"]:
+            badge = "🟡 [SEMI-AUTO]"
         elif emode == "EXPERIMENT":
             badge = "🧪 [EXPERIMENT]"
         else:
@@ -757,6 +866,144 @@ def get_current_price(symbol: str, ttl_seconds: float = 15.0) -> float:
 
     log(f"⚠️ Warnung: Kein valider Live-Kurs (> 0) für {symbol} ({mapped_symbol}) erhalten!")
     return 0.0
+
+def get_snapshot_live_price(user_dir: str, symbol: str, is_long: bool, max_age_seconds: float = 60.0) -> float:
+    """Liest den aktuellen Echtzeit-Broker-Kurs aus fleet_snapshot.json (Bid für Long, Ask für Short)."""
+    if not user_dir or not symbol:
+        return 0.0
+
+    snapshot_path = os.path.join(user_dir, "fleet_snapshot.json")
+    if not os.path.exists(snapshot_path):
+        return 0.0
+
+    snapshot = safe_load_json(snapshot_path, default={})
+    if not isinstance(snapshot, dict) or not snapshot:
+        return 0.0
+
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+
+    def _parse_ts_utc(raw_ts):
+        if raw_ts is None or isinstance(raw_ts, bool):
+            return None
+        if isinstance(raw_ts, (int, float)):
+            try:
+                f_val = float(raw_ts)
+                if f_val != f_val or f_val == float("inf") or f_val == float("-inf"):
+                    return None
+                return datetime.datetime.fromtimestamp(f_val, tz=datetime.timezone.utc)
+            except (ValueError, OverflowError, OSError):
+                return None
+        if isinstance(raw_ts, str):
+            ts_str = raw_ts.strip()
+            if not ts_str:
+                return None
+            try:
+                f_val = float(ts_str)
+                if f_val != f_val or f_val == float("inf") or f_val == float("-inf"):
+                    return None
+                return datetime.datetime.fromtimestamp(f_val, tz=datetime.timezone.utc)
+            except (ValueError, OverflowError, OSError):
+                pass
+            try:
+                if ts_str.endswith("Z") or ts_str.endswith("z"):
+                    ts_str = ts_str[:-1] + "+00:00"
+                dt_val = datetime.datetime.fromisoformat(ts_str)
+                if dt_val.tzinfo is None:
+                    return dt_val.replace(tzinfo=datetime.timezone.utc)
+                return dt_val.astimezone(datetime.timezone.utc)
+            except (ValueError, TypeError):
+                return None
+        return None
+
+    def _is_ts_valid(raw_ts) -> bool:
+        dt_val = _parse_ts_utc(raw_ts)
+        if dt_val is None:
+            return False
+        age_sec = (now_utc - dt_val).total_seconds()
+        if age_sec > max_age_seconds or age_sec < -15.0:
+            return False
+        return True
+
+    if not _is_ts_valid(snapshot.get("timestamp")):
+        return 0.0
+
+    live_prices = snapshot.get("live_prices")
+    if not isinstance(live_prices, dict) or not live_prices:
+        return 0.0
+
+    sym_u = str(symbol).strip().upper()
+    norm_sym = normalize_symbol(sym_u)
+    candidates = {sym_u, norm_sym}
+    for base in (sym_u, norm_sym):
+        if base.endswith("=X") or base.endswith("=F"):
+            candidates.add(base[:-2])
+
+    for alias_k, alias_v in SYMBOL_ALIAS_MAP.items():
+        ak = str(alias_k).strip().upper()
+        av = str(alias_v).strip().upper()
+        av_stripped = av[:-2] if (av.endswith("=X") or av.endswith("=F")) else av
+        if ak in candidates or av in candidates or av_stripped in candidates:
+            candidates.add(ak)
+            candidates.add(av)
+
+    for cand in list(candidates):
+        if cand.endswith("=X") or cand.endswith("=F"):
+            candidates.add(cand[:-2])
+
+    normalized_prices = {
+        str(k).strip().upper(): v
+        for k, v in live_prices.items()
+        if k is not None and str(k).strip()
+    }
+
+    matched_entry = None
+    if sym_u in normalized_prices:
+        matched_entry = normalized_prices[sym_u]
+    elif norm_sym in normalized_prices:
+        matched_entry = normalized_prices[norm_sym]
+    else:
+        for k_u, val in normalized_prices.items():
+            if k_u in candidates:
+                matched_entry = val
+                break
+
+    if matched_entry is None:
+        return 0.0
+
+    def _to_pos_float(val) -> float:
+        if val is None or isinstance(val, bool):
+            return 0.0
+        try:
+            f_val = float(val)
+        except (TypeError, ValueError):
+            return 0.0
+        if f_val != f_val or f_val == float("inf") or f_val == float("-inf"):
+            return 0.0
+        return f_val if f_val > 0.0 else 0.0
+
+    if isinstance(matched_entry, dict):
+        sym_ts = matched_entry.get("timestamp")
+        if sym_ts is None:
+            sym_ts = matched_entry.get("ts")
+        if sym_ts is not None and not _is_ts_valid(sym_ts):
+            return 0.0
+
+        field_order = ("bid", "last", "price", "ask") if is_long else ("ask", "last", "price", "bid")
+        for field in field_order:
+            extracted = _to_pos_float(matched_entry.get(field))
+            if extracted > 0.0:
+                return extracted
+        return 0.0
+
+    return _to_pos_float(matched_entry)
+
+
+def get_trade_execution_price(user_dir: str, symbol: str, is_long: bool) -> float:
+    """Liefert bevorzugt den Echtzeit-Broker-Kurs aus fleet_snapshot.json mit yfinance-Fallback."""
+    snap_price = get_snapshot_live_price(user_dir, symbol, is_long, max_age_seconds=60.0)
+    if snap_price > 0.0:
+        return snap_price
+    return get_current_price(symbol)
 
 
 def _atomic_update_journal_closures(journal_file: str, closures: dict[str, dict]) -> bool:
@@ -930,7 +1177,11 @@ def check_open_trades(user_dir: str):
         if exit_mode == "TRAILING_STOP" or not exit_mode:
             _, exit_mode = resolve_account_exit_mode(matched_acc or {}, acc_type, str(trade.get("setup_type", "")), sym)
 
-        is_live_auto_prop = bool(matched_acc and matched_acc.get("execution_mode") == "LIVE_AUTO" and acc_type in ["apex", "eod_futures", "ftmo"])
+        is_live_auto_prop = bool(
+            matched_acc
+            and str(matched_acc.get("execution_mode", "")).strip().upper() in ["LIVE_AUTO", "SEMI_AUTO"]
+            and acc_type in ["apex", "eod_futures", "ftmo"]
+        )
         
         is_eod_futures_acc = (acc_type == "eod_futures") or any(k in acc_name_low for k in eod_kw)
         is_apex_acc = (not is_eod_futures_acc) and ((acc_type == "apex") or ("apex" in acc_name_low) or (exit_profile in ["apex_lock", "apex_commodity_scale"]))
@@ -980,14 +1231,14 @@ def check_open_trades(user_dir: str):
                 trigger_auto_close = True
                 reason_str = "EOD_Close (Apex-Wartung)"
 
-        # 2b. EOD-Futures (MFFU / Tradeify — 22:00 MEZ Hard-Flatten)
+        # 2b. EOD-Futures (MFFU / Tradeify — 16:00 ET Hard-Flatten)
         if is_eod_futures_acc and is_cme_future:
             if is_ny_weekday and is_early_close and datetime.time(12, 45) <= ny_time <= datetime.time(12, 58):
                 trigger_auto_close = True
                 reason_str = "EOD_Close (EOD-Futures Early)"
-            elif berlin_dt.weekday() < 5 and not is_early_close and datetime.time(22, 0) <= b_time <= datetime.time(22, 55):
+            elif is_ny_weekday and not is_early_close and datetime.time(16, 0) <= ny_time <= datetime.time(16, 55):
                 trigger_auto_close = True
-                reason_str = "EOD_Close (22:00 MEZ)"
+                reason_str = "EOD_Close (16:00 ET)"
 
         # 3. FTMO Devisen (Freitags-Wochenendschluss MEZ)
         if is_ftmo_acc and berlin_dt.weekday() == 4:
@@ -997,14 +1248,14 @@ def check_open_trades(user_dir: str):
 
         # --- ZWEISTUFIGER IDEMPOTENZ- & SPOOLER-RIEGEL FÜR FLATTEN_POSITION ---
         if trigger_auto_close:
-            if matched_acc and matched_acc.get("execution_mode") == "LIVE_AUTO":
+            if matched_acc and str(matched_acc.get("execution_mode", "")).strip().upper() in ["LIVE_AUTO", "SEMI_AUTO"]:
                 if acc_type in ["apex", "eod_futures", "ftmo"]:
-                    # Pfad A: LIVE_AUTO (Physisches Spooling statt CSV-Phantom-Close)
+                    # Pfad A: LIVE_AUTO / SEMI_AUTO (Physisches Spooling statt CSV-Phantom-Close)
                     username = os.path.basename(os.path.normpath(user_dir))
                     
                     # Idempotenz Stufe 1: File-Check (In-Flight-Schutz)
                     spool_skip = False
-                    for s_dir in [PENDING_SIGNALS_DIR, PROCESSING_SIGNALS_DIR]:
+                    for s_dir in [PENDING_SIGNALS_DIR, PROCESSING_SIGNALS_DIR, AWAITING_APPROVAL_DIR]:
                         if os.path.exists(s_dir):
                             for f_name in os.listdir(s_dir):
                                 if f"sig_flatten_" in f_name and t_id in f_name:
@@ -1019,7 +1270,7 @@ def check_open_trades(user_dir: str):
                         spool_skip = True
 
                     if not spool_skip:
-                        curr_price_flat = get_current_price(sym)
+                        curr_price_flat = get_trade_execution_price(user_dir, sym, is_long)
                         broker_acc = matched_acc.get("broker_account", "AUTO_ROUTED")
                         ts_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
                         
@@ -1061,7 +1312,7 @@ def check_open_trades(user_dir: str):
                     continue
 
             # Pfad B: Manuelle Konten (Phantom Close)
-            curr_price_man = get_current_price(sym)
+            curr_price_man = get_trade_execution_price(user_dir, sym, is_long)
             if curr_price_man <= 0:
                 curr_price_man = entry_price # Fallback
                 
@@ -1090,7 +1341,7 @@ def check_open_trades(user_dir: str):
             continue
 
         # --- AB HIER NORMALER VERLAUF (KEIN EOD) ---
-        curr_price = get_current_price(sym)
+        curr_price = get_trade_execution_price(user_dir, sym, is_long)
         if curr_price <= 0:
             continue
 
@@ -1237,7 +1488,7 @@ def check_open_trades(user_dir: str):
                         matched_acc_id = a_id
                         break
                 
-                if matched_acc and matched_acc.get("execution_mode") == "LIVE_AUTO":
+                if matched_acc and str(matched_acc.get("execution_mode", "")).strip().upper() in ["LIVE_AUTO", "SEMI_AUTO"]:
                     acc_type = resolve_account_type(matched_acc_id, matched_acc)
                     if acc_type in ["apex", "eod_futures", "ftmo"] and not is_crypto:
                         scale_out_executed = False
@@ -1265,7 +1516,7 @@ def check_open_trades(user_dir: str):
                                 has_split_journal = any(str(r_id).startswith(f"{t_id}_SO") for r_id in df_journal["id"])
                                 
                                 spool_skip = False
-                                for s_dir in [PENDING_SIGNALS_DIR, PROCESSING_SIGNALS_DIR]:
+                                for s_dir in [PENDING_SIGNALS_DIR, PROCESSING_SIGNALS_DIR, AWAITING_APPROVAL_DIR]:
                                     if os.path.exists(s_dir):
                                         for f_name in os.listdir(s_dir):
                                             if t_id in f_name:
@@ -1303,7 +1554,7 @@ def check_open_trades(user_dir: str):
                         if scale_out_executed:
                             continue  # Überspringe MODIFY_STOP im aktuellen Lauf
                         spool_skip = False
-                        for s_dir in [PENDING_SIGNALS_DIR, PROCESSING_SIGNALS_DIR]:
+                        for s_dir in [PENDING_SIGNALS_DIR, PROCESSING_SIGNALS_DIR, AWAITING_APPROVAL_DIR]:
                             if os.path.exists(s_dir):
                                 for f_name in os.listdir(s_dir):
                                     if t_id in f_name:
@@ -1596,6 +1847,55 @@ def get_stopout_cooldown_seconds(tf: str) -> int:
         return 7200
     return 28800
 
+def get_pending_entry_symbols_by_account(username: str) -> dict[str, set[str]]:
+    """Sammelt normalisierte Symbole aller schwebenden ENTRY-Signale je Konto aus Pending/Processing/Approval."""
+    result: dict[str, set[str]] = {}
+    for s_dir in (PENDING_SIGNALS_DIR, PROCESSING_SIGNALS_DIR, AWAITING_APPROVAL_DIR):
+        if not s_dir or not os.path.isdir(s_dir):
+            continue
+        try:
+            entries = os.listdir(s_dir)
+        except OSError:
+            continue
+
+        for fname in entries:
+            if fname.startswith(".") or not fname.endswith(".json"):
+                continue
+            if fname.startswith(("sig_mod_", "sig_so_", "sig_flatten_")):
+                continue
+
+            fpath = os.path.join(s_dir, fname)
+            if not os.path.isfile(fpath):
+                continue
+
+            payload = safe_load_json(fpath, default={})
+            if not isinstance(payload, dict) or not payload:
+                continue
+
+            action_val = str(payload.get("action") or "").strip().upper()
+            if action_val and action_val != "ENTRY":
+                continue
+
+            payload_user = str(payload.get("username") or "").strip()
+            if payload_user and payload_user != username:
+                continue
+
+            raw_sym = payload.get("symbol")
+            if raw_sym is None or not str(raw_sym).strip():
+                continue
+            norm_sym = normalize_symbol(str(raw_sym))
+            if not norm_sym:
+                continue
+
+            for field in ("lab_account_id", "account_id", "account_name"):
+                raw_key = payload.get(field)
+                if raw_key is not None:
+                    key_str = str(raw_key).strip()
+                    if key_str and key_str.upper() != "AUTO_ROUTED":
+                        result.setdefault(key_str, set()).add(norm_sym)
+
+    return result
+
 
 def run_watchlist_entry_screener():
     if not os.path.exists(USERS_DIR):
@@ -1693,8 +1993,22 @@ def run_watchlist_entry_screener():
         local_now = get_berlin_now() if tz_str == "Europe/Berlin" else get_ny_now()
         berlin_now = get_berlin_now()
         
+        ny_now = get_ny_now()
+
+        # US-Feiertags- & Early-Close-Guard vor yfinance-Download (CME-Futures & US-Aktien)
+        is_fx_dl = ("=X" in norm_sym) or ("DX-Y" in norm_sym)
+        eu_suffixes_dl = (".DE", ".SW", ".L", ".F", ".MU", ".AS")
+        is_eu_eq_dl = any(norm_sym.endswith(ext) or sym_u.endswith(ext) for ext in eu_suffixes_dl)
+        is_us_dl_instrument = (not is_crypto) and (not is_fx_dl) and (not is_eu_eq_dl)
+        if is_us_dl_instrument:
+            us_dl_status, _ = get_us_market_day_status(ny_now.date())
+            if us_dl_status == "HOLIDAY":
+                continue
+            if us_dl_status == "EARLY_CLOSE" and ny_now.time() >= datetime.time(12, 40):
+                continue
+
         # News Blackout & Re-Entry Guard überspringt yfinance-Download
-        is_blocked, _ = is_in_entry_blackout(sym_u, "apex", get_ny_now(), get_berlin_now())
+        is_blocked, _ = is_in_entry_blackout(sym_u, "apex", ny_now, berlin_now)
         if is_blocked:
             continue
         
@@ -1967,7 +2281,9 @@ def run_watchlist_entry_screener():
                 if cooldown_active:
                     continue
                 
+                pending_by_acc = get_pending_entry_symbols_by_account(uname)
                 matched_accounts = []
+                matched_acc_keys: dict[int, str] = {}
                 for acc_key, acc in lab_accs.items():
                     if not isinstance(acc, dict):
                         continue
@@ -1984,19 +2300,28 @@ def run_watchlist_entry_screener():
                         stammkader_set=stammkader_syms
                     )
                     if is_valid:
-
-                        acc_name_cfg = str(acc.get("name", "")).strip()
-                        open_syms = tenant_open_symbols_by_acc.get(acc_name_cfg, set())
+                        acc_name_cfg = str(acc.get("name") or "").strip()
+                        open_syms = set(tenant_open_symbols_by_acc.get(acc_name_cfg, set()))
+                        effective_open_syms = set(open_syms)
+                        for lookup_key in (
+                            str(acc_key).strip(),
+                            str(acc.get("id") or "").strip(),
+                            str(acc.get("broker_account_id") or acc.get("broker_account") or "").strip(),
+                            acc_name_cfg,
+                        ):
+                            if lookup_key and lookup_key.upper() != "AUTO_ROUTED" and lookup_key in pending_by_acc:
+                                effective_open_syms.update(pending_by_acc[lookup_key])
                         
-                        if norm_sym in open_syms:
+                        if norm_sym in effective_open_syms:
                             continue
-                        if a_type == "apex" and len(open_syms) > 0:
+                        if a_type == "apex" and len(effective_open_syms) > 0:
                             continue
-                        if a_type == "eod_futures" and len(open_syms) >= 2:
+                        if a_type == "eod_futures" and len(effective_open_syms) >= 2:
                             continue
-                        if a_type == "ftmo" and has_usd_forex_cluster_conflict(norm_sym, open_syms):
+                        if a_type == "ftmo" and has_usd_forex_cluster_conflict(norm_sym, effective_open_syms):
                             continue
                         matched_accounts.append((acc, a_type))
+                        matched_acc_keys[id(acc)] = acc_key
                         all_matched_account_names.append(acc.get("name", "Unbekannt"))
                         
                 PROP_FUTURES_KADER = {"6E=F", "M6E", "GC=F", "MGC", "CL=F", "MCL", "NQ=F", "MNQ"}
@@ -2082,7 +2407,12 @@ def run_watchlist_entry_screener():
                         routing_blocks.append("🎯 <b>Empfohlenes Setup:</b> [Allgemein]")
                     
                 routing_str = "\n\n".join(routing_blocks)
-                exec_mode_str = "⚡ <b>Ausführung:</b> 🟢 LIVE-AUTO aktiviert" if any(acc.get("execution_mode") == "LIVE_AUTO" for acc, a_type in matched_accounts) else "⚡ <b>Ausführung:</b> 🔵 Co-Pilot (Manuelle Orderaufgabe)"
+                if any(str(acc.get("execution_mode", "")).strip().upper() == "LIVE_AUTO" for acc, a_type in matched_accounts):
+                    exec_mode_str = "⚡ <b>Ausführung:</b> 🟢 LIVE-AUTO aktiviert"
+                elif any(str(acc.get("execution_mode", "")).strip().upper() == "SEMI_AUTO" for acc, a_type in matched_accounts):
+                    exec_mode_str = "⚡ <b>Ausführung:</b> 🟡 SEMI-AUTO (1-Tap-Freigabe über Ops-Bot)"
+                else:
+                    exec_mode_str = "⚡ <b>Ausführung:</b> 🔵 Co-Pilot (Manuelle Orderaufgabe)"
                 limit_label = "Max. Kaufkurs" if not is_short else "Min. Verkaufskurs"
 
                 tp_display = "Kein TP (Offener Trend-Runner)" if eff_tp <= 0.0 else format_price(eff_tp, sym_u)
@@ -2117,8 +2447,10 @@ def run_watchlist_entry_screener():
                 for acc, account_type in matched_accounts:
                     if should_spool_signal(acc, account_type, is_crypto):
                         broker_acc = acc.get("broker_account_id") or acc.get("broker_account") or "AUTO_ROUTED"
-                        acc_id_val = acc.get("id", "")
+                        acc_key_val = matched_acc_keys.get(id(acc), "")
+                        acc_id_val = acc.get("id") or acc_key_val
                         acc_name_val = acc.get("name", acc_id_val)
+                        acc_exec_mode = str(acc.get("execution_mode", "LIVE_AUTO")).strip().upper()
                         
                         acc_size_fallback = 100000.0 if account_type in ["ftmo", "eod_futures"] else (50000.0 if account_type == "apex" else 10000.0)
                         raw_size = acc.get("account_size")
@@ -2139,6 +2471,7 @@ def run_watchlist_entry_screener():
                             "lab_account_id": acc_id_val,
                             "account_name": acc_name_val,
                             "account_type": account_type,
+                            "execution_mode": acc_exec_mode,
                             "exit_profile": acc_exit_prof,
                             "exit_mode": acc_exit_mode,
                             "balance": float(acc.get("account_size", acc_size_fallback)),
@@ -2400,36 +2733,57 @@ def run_tests():
         log("[FAIL] RSI-Korridor-Schutzschild durchbrochen")
         all_passed = False
 
-    # 6. TEST: KONTO-AUDIT & DIRECTION-GATEKEEPER
-    test_acc_6 = {"tickers": ["NQ=F"], "direction": "long", "min_score": 70, "allowed_setups": ["A", "B"], "account_type": "apex"}
-    dna_mock = {"session": (0, 0, 23, 59)}
-    now_mock = datetime.datetime.now()
-    
-    res_6a, _ = audit_account_for_signal("test", test_acc_6, "NQ=F", True, 85, "A", now_mock, dna_mock)
-    res_6b, _ = audit_account_for_signal("test", test_acc_6, "NQ=F", False, 65, "A", now_mock, dna_mock)
-    res_6c, _ = audit_account_for_signal("test", test_acc_6, "NQ=F", False, 75, "A", now_mock, dna_mock)
+    # 6. & 7. TEST: KONTO-AUDIT, DIRECTION-GATEKEEPER & WHITELIST-SCHUTZ (MIT DETERMINISTISCHEM ZEIT-MOCK)
+    old_ny_67 = globals().get("get_ny_now")
+    old_ber_67 = globals().get("get_berlin_now")
+    try:
+        try:
+            tz_ny_67 = zoneinfo.ZoneInfo("America/New_York")
+            tz_ber_67 = zoneinfo.ZoneInfo("Europe/Berlin")
+        except Exception:
+            tz_ny_67 = datetime.timezone(datetime.timedelta(hours=-5))
+            tz_ber_67 = datetime.timezone(datetime.timedelta(hours=1))
 
-    if not res_6a and not res_6b and res_6c:
-        log("[PASS] Konto-Audit Schranken-Check (Richtung & Score)")
-    else:
-        log("[FAIL] Konto-Audit Schranken-Check (Richtung & Score)")
-        all_passed = False
+        dt_ny_67 = datetime.datetime(2026, 11, 10, 10, 0, 0, tzinfo=tz_ny_67)
+        dt_ber_67 = datetime.datetime(2026, 11, 10, 16, 0, 0, tzinfo=tz_ber_67)
+        globals()["get_ny_now"] = lambda: dt_ny_67
+        globals()["get_berlin_now"] = lambda: dt_ber_67
 
-    # 7. TEST: WHITELIST-SCHUTZ & WILDCARD-FALLE (NEUE FALLBACK-LOGIK)
-    test_acc_7_a1 = {"tickers": ["MNQ"], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "apex"}
-    test_acc_7_apex_empty = {"tickers": [], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "apex"}
-    test_acc_7_roh = {"name": "Privatkonto Rohstoffrunner", "broker_profile": "Rohstoff", "tickers": [], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "private"}
-    
-    res_7a, _ = audit_account_for_signal("test", test_acc_7_a1, "NQ=F", False, 100, "A", now_mock, dna_mock)
-    res_7b, _ = audit_account_for_signal("test", test_acc_7_apex_empty, "NQ=F", False, 100, "A", now_mock, dna_mock)
-    res_7c, _ = audit_account_for_signal("test", test_acc_7_apex_empty, "GC=F", False, 100, "A", now_mock, dna_mock)
-    res_7d, _ = audit_account_for_signal("test", test_acc_7_roh, "NQ=F", False, 100, "A", now_mock, dna_mock)
-    
-    if res_7a and res_7b and not res_7c and not res_7d:
-        log("[PASS] Whitelist-Schutz & Neue Fallback-Logik für leere Listen")
-    else:
-        log(f"[FAIL] Whitelist-Schutz (7a:{res_7a} 7b:{res_7b} 7c:{res_7c} 7d:{res_7d})")
-        all_passed = False
+        # 6. TEST: KONTO-AUDIT & DIRECTION-GATEKEEPER
+        test_acc_6 = {"tickers": ["NQ=F"], "direction": "long", "min_score": 70, "allowed_setups": ["A", "B"], "account_type": "apex"}
+        dna_mock = {"session": (0, 0, 23, 59)}
+        now_mock = dt_ber_67
+        
+        res_6a, _ = audit_account_for_signal("test", test_acc_6, "NQ=F", True, 85, "A", now_mock, dna_mock)
+        res_6b, _ = audit_account_for_signal("test", test_acc_6, "NQ=F", False, 65, "A", now_mock, dna_mock)
+        res_6c, _ = audit_account_for_signal("test", test_acc_6, "NQ=F", False, 75, "A", now_mock, dna_mock)
+
+        if not res_6a and not res_6b and res_6c:
+            log("[PASS] Konto-Audit Schranken-Check (Richtung & Score)")
+        else:
+            log("[FAIL] Konto-Audit Schranken-Check (Richtung & Score)")
+            all_passed = False
+
+        # 7. TEST: WHITELIST-SCHUTZ & WILDCARD-FALLE (NEUE FALLBACK-LOGIK)
+        test_acc_7_a1 = {"tickers": ["MNQ"], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "apex"}
+        test_acc_7_apex_empty = {"tickers": [], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "apex"}
+        test_acc_7_roh = {"name": "Privatkonto Rohstoffrunner", "broker_profile": "Rohstoff", "tickers": [], "direction": "both", "min_score": 0, "allowed_setups": ["A", "B"], "account_type": "private"}
+        
+        res_7a, _ = audit_account_for_signal("test", test_acc_7_a1, "NQ=F", False, 100, "A", now_mock, dna_mock)
+        res_7b, _ = audit_account_for_signal("test", test_acc_7_apex_empty, "NQ=F", False, 100, "A", now_mock, dna_mock)
+        res_7c, _ = audit_account_for_signal("test", test_acc_7_apex_empty, "GC=F", False, 100, "A", now_mock, dna_mock)
+        res_7d, _ = audit_account_for_signal("test", test_acc_7_roh, "NQ=F", False, 100, "A", now_mock, dna_mock)
+        
+        if res_7a and res_7b and not res_7c and not res_7d:
+            log("[PASS] Whitelist-Schutz & Neue Fallback-Logik für leere Listen")
+        else:
+            log(f"[FAIL] Whitelist-Schutz (7a:{res_7a} 7b:{res_7b} 7c:{res_7c} 7d:{res_7d})")
+            all_passed = False
+    finally:
+        if old_ny_67 is not None:
+            globals()["get_ny_now"] = old_ny_67
+        if old_ber_67 is not None:
+            globals()["get_berlin_now"] = old_ber_67
 
     # 8. TEST: EXECUTION-MODE & SPOOLER-QUEUE BRANDMAUER
     acc_8a = {"execution_mode": "CO_PILOT", "account_type": "apex"}
@@ -2694,24 +3048,44 @@ def run_tests():
         log("[FAIL] High-Impact News Blackouts (EIA & US-Makro)")
         all_passed = False
 
-    # 18. TEST: ASSET-WEICHE & BROKER-PROFILE
-    acc_bp = {"account_type": "private", "broker_profile": "Bitpanda Fusion (0.10% / 0.05%)", "tickers": ["ES=F", "BTC-USD", "NVDA"]}
-    acc_ib = {"account_type": "private", "broker_profile": "Interactive Brokers / Flatex", "tickers": ["CL=F", "AAPL"]}
-    now_mock = datetime.datetime.now()
-    dna_mock = {"session": (0, 0, 23, 59)}
-    
-    res_bp_es, _ = audit_account_for_signal("test", acc_bp, "ES=F", False, 100, "A", now_mock, dna_mock)
-    res_bp_btc, _ = audit_account_for_signal("test", acc_bp, "BTC-USD", False, 100, "A", now_mock, dna_mock)
-    res_bp_nvda, _ = audit_account_for_signal("test", acc_bp, "NVDA", False, 100, "A", now_mock, dna_mock)
-    
-    res_ib_cl, _ = audit_account_for_signal("test", acc_ib, "CL=F", False, 100, "A", now_mock, dna_mock)
-    res_ib_aapl, _ = audit_account_for_signal("test", acc_ib, "AAPL", False, 100, "A", now_mock, dna_mock)
-    
-    if not res_bp_es and res_bp_btc and res_bp_nvda and res_ib_cl and res_ib_aapl:
-        log("[PASS] Asset-Klassen-Weiche (Futures-Schutz & Multi-Asset Profile)")
-    else:
-        log("[FAIL] Asset-Klassen-Weiche (Futures-Schutz & Multi-Asset Profile)")
-        all_passed = False
+    # 18. TEST: ASSET-WEICHE & BROKER-PROFILE (MIT DETERMINISTISCHEM ZEIT-MOCK)
+    old_ny_18 = globals().get("get_ny_now")
+    old_ber_18 = globals().get("get_berlin_now")
+    try:
+        try:
+            tz_ny_18 = zoneinfo.ZoneInfo("America/New_York")
+            tz_ber_18 = zoneinfo.ZoneInfo("Europe/Berlin")
+        except Exception:
+            tz_ny_18 = datetime.timezone(datetime.timedelta(hours=-5))
+            tz_ber_18 = datetime.timezone(datetime.timedelta(hours=1))
+
+        dt_ny_18 = datetime.datetime(2026, 11, 10, 10, 0, 0, tzinfo=tz_ny_18)
+        dt_ber_18 = datetime.datetime(2026, 11, 10, 16, 0, 0, tzinfo=tz_ber_18)
+        globals()["get_ny_now"] = lambda: dt_ny_18
+        globals()["get_berlin_now"] = lambda: dt_ber_18
+
+        acc_bp = {"account_type": "private", "broker_profile": "Bitpanda Fusion (0.10% / 0.05%)", "tickers": ["ES=F", "BTC-USD", "NVDA"]}
+        acc_ib = {"account_type": "private", "broker_profile": "Interactive Brokers / Flatex", "tickers": ["CL=F", "AAPL"]}
+        now_mock = dt_ber_18
+        dna_mock = {"session": (0, 0, 23, 59)}
+        
+        res_bp_es, _ = audit_account_for_signal("test", acc_bp, "ES=F", False, 100, "A", now_mock, dna_mock)
+        res_bp_btc, _ = audit_account_for_signal("test", acc_bp, "BTC-USD", False, 100, "A", now_mock, dna_mock)
+        res_bp_nvda, _ = audit_account_for_signal("test", acc_bp, "NVDA", False, 100, "A", now_mock, dna_mock)
+        
+        res_ib_cl, _ = audit_account_for_signal("test", acc_ib, "CL=F", False, 100, "A", now_mock, dna_mock)
+        res_ib_aapl, _ = audit_account_for_signal("test", acc_ib, "AAPL", False, 100, "A", now_mock, dna_mock)
+        
+        if not res_bp_es and res_bp_btc and res_bp_nvda and res_ib_cl and res_ib_aapl:
+            log("[PASS] Asset-Klassen-Weiche (Futures-Schutz & Multi-Asset Profile)")
+        else:
+            log("[FAIL] Asset-Klassen-Weiche (Futures-Schutz & Multi-Asset Profile)")
+            all_passed = False
+    finally:
+        if old_ny_18 is not None:
+            globals()["get_ny_now"] = old_ny_18
+        if old_ber_18 is not None:
+            globals()["get_berlin_now"] = old_ber_18
 
     # 19. TEST: HARD-FLATTEN SPOOLING & IDEMPOTENZ (LIVE_AUTO)
     t19_user_dir = tempfile.mkdtemp(prefix="test19_")
@@ -3028,6 +3402,269 @@ def run_tests():
             all_passed = False
     except Exception as e:
         log(f"[FAIL] MFFU 100k EOD (Fehler: {e})")
+        all_passed = False
+
+    # 24. TEST: SEMI_AUTO SPOOLING, APPROVAL-DUPLIKATSPERRE, LIVE-BROKER-TICKS & US/EU-DST-FLATTEN
+    t24_part_a = False
+    t24_part_b = False
+    t24_part_c = False
+    t24_part_d = False
+    t24_error = None
+
+    old_pending_24 = PENDING_SIGNALS_DIR
+    old_processing_24 = PROCESSING_SIGNALS_DIR
+    old_awaiting_24 = globals().get("AWAITING_APPROVAL_DIR")
+    old_ny_24 = globals().get("get_ny_now")
+    old_ber_24 = globals().get("get_berlin_now")
+    old_price_24 = globals().get("get_current_price")
+
+    t24_user_dir = tempfile.mkdtemp(prefix="test24_")
+    t24_pending = os.path.join(t24_user_dir, "signals", "01_pending")
+    t24_processing = os.path.join(t24_user_dir, "signals", "02_processing")
+    t24_awaiting = os.path.join(t24_user_dir, "signals", "05_awaiting_approval")
+
+    try:
+        os.makedirs(t24_pending, exist_ok=True)
+        os.makedirs(t24_processing, exist_ok=True)
+        os.makedirs(t24_awaiting, exist_ok=True)
+
+        PENDING_SIGNALS_DIR = t24_pending
+        PROCESSING_SIGNALS_DIR = t24_processing
+        globals()["AWAITING_APPROVAL_DIR"] = t24_awaiting
+
+        # Teil A: SEMI_AUTO Spooling-Freigabe & Telegram-Badges
+        t24_spool_eod = should_spool_signal({"execution_mode": "SEMI_AUTO"}, "eod_futures", False)
+        t24_spool_apex = should_spool_signal({"execution_mode": "SEMI_AUTO"}, "apex", False)
+        t24_spool_ftmo = should_spool_signal({"execution_mode": "SEMI_AUTO"}, "ftmo", False)
+        t24_spool_crypto = should_spool_signal({"execution_mode": "SEMI_AUTO"}, "eod_futures", True)
+        _, t24_badges = get_telegram_header_and_badges(
+            [({"execution_mode": "SEMI_AUTO", "name": "MFFU 100k"}, "eod_futures")],
+            False,
+            False,
+        )
+        t24_has_semi_badge = any("🟡 [SEMI-AUTO]" in b for b in t24_badges)
+        t24_part_a = (
+            t24_spool_eod is True
+            and t24_spool_apex is True
+            and t24_spool_ftmo is True
+            and t24_spool_crypto is False
+            and t24_has_semi_badge
+        )
+
+        # Teil B: Duplikat- & Mandantensperre für 05_awaiting_approval/
+        t24_entry_file = os.path.join(t24_awaiting, "sig_1700000000_testuser_MFFU_DEMO_M6E.json")
+        atomic_write_json(
+            t24_entry_file,
+            {
+                "action": "ENTRY",
+                "username": "testuser",
+                "lab_account_id": "mffu_eod",
+                "account_id": "MFFU_DEMO",
+                "account_name": "MFFU 100k EOD",
+                "symbol": "6E=F",
+            },
+        )
+        t24_pend_user = get_pending_entry_symbols_by_account("testuser")
+        t24_pend_other = get_pending_entry_symbols_by_account("otheruser")
+        t24_part_b = (
+            "6E=F" in t24_pend_user.get("mffu_eod", set())
+            and "6E=F" in t24_pend_user.get("MFFU_DEMO", set())
+            and "6E=F" in t24_pend_user.get("MFFU 100k EOD", set())
+            and all("6E=F" not in syms for syms in t24_pend_other.values())
+        )
+        if os.path.exists(t24_entry_file):
+            os.remove(t24_entry_file)
+
+        # Teil C: SEMI_AUTO Management & März-Zeitumstellungs-Flatten (16:02 ET / 21:02 MEZ)
+        t24_cfg = {
+            "lab_accounts": {
+                "mffu_eod": {
+                    "name": "MFFU 100k EOD",
+                    "execution_mode": "SEMI_AUTO",
+                    "account_type": "eod_futures",
+                    "broker_account": "MFFU_DEMO",
+                    "tickers": [],
+                }
+            }
+        }
+        with open(os.path.join(t24_user_dir, "ticker_config.json"), "w", encoding="utf-8") as f:
+            json.dump(t24_cfg, f)
+
+        t24_journal = os.path.join(t24_user_dir, "trade_journal.csv")
+        df24 = pd.DataFrame([{
+            "id": "T24_SEMI",
+            "status": "OPEN",
+            "symbol": "M6E",
+            "account_name": "MFFU 100k EOD",
+            "direction": "Long",
+            "entry_price": 1.10000,
+            "sl_price": 1.09000,
+            "initial_sl_price": 1.09000,
+            "current_sl": 0.0,
+            "position_size": 1.0,
+            "point_value": 12500.0,
+            "fx_rate": 1.0,
+            "est_fees_eur": 2.0,
+        }])
+        df24.to_csv(t24_journal, index=False)
+
+        try:
+            t24_tz_ny = zoneinfo.ZoneInfo("America/New_York")
+            t24_tz_ber = zoneinfo.ZoneInfo("Europe/Berlin")
+        except Exception:
+            t24_tz_ny = datetime.timezone(datetime.timedelta(hours=-4))
+            t24_tz_ber = datetime.timezone(datetime.timedelta(hours=1))
+
+        # C1: Regulärer Handelszeitpunkt im März-Übergangsfenster (+1.2 R -> sig_mod_)
+        globals()["get_ny_now"] = lambda: datetime.datetime(2026, 3, 18, 10, 0, 0, tzinfo=t24_tz_ny)
+        globals()["get_berlin_now"] = lambda: datetime.datetime(2026, 3, 18, 15, 0, 0, tzinfo=t24_tz_ber)
+        globals()["get_current_price"] = lambda sym, ttl=15: 1.11200
+
+        check_open_trades(t24_user_dir)
+        t24_mod_files = [f for f in os.listdir(t24_pending) if f.startswith("sig_mod_")]
+        t24_c1 = len(t24_mod_files) == 1
+
+        # C2: 16:02 ET (= 21:02 MEZ in der US/EU-Zeitumstellungslücke -> sig_flatten_)
+        for f_name in os.listdir(t24_pending):
+            os.remove(os.path.join(t24_pending, f_name))
+
+        globals()["get_ny_now"] = lambda: datetime.datetime(2026, 3, 18, 16, 2, 0, tzinfo=t24_tz_ny)
+        globals()["get_berlin_now"] = lambda: datetime.datetime(2026, 3, 18, 21, 2, 0, tzinfo=t24_tz_ber)
+        globals()["get_current_price"] = lambda sym, ttl=15: 1.10200
+
+        check_open_trades(t24_user_dir)
+        t24_flat_files = [f for f in os.listdir(t24_pending) if f.startswith("sig_flatten_")]
+        t24_c2 = len(t24_flat_files) == 1
+
+        # C3: In-Flight-Sperre über 05_awaiting_approval/ (Cooldown zurücksetzen für echten File-Lock-Test)
+        for f_name in os.listdir(t24_pending):
+            os.remove(os.path.join(t24_pending, f_name))
+        t24_alert_state_path = os.path.join(t24_user_dir, "alert_state.json")
+        if os.path.exists(t24_alert_state_path):
+            os.remove(t24_alert_state_path)
+
+        t24_flat_approval = os.path.join(t24_awaiting, "sig_flatten_in_approval_T24_SEMI.json")
+        atomic_write_json(t24_flat_approval, {"action": "FLATTEN_POSITION", "trade_id": "T24_SEMI"})
+
+        check_open_trades(t24_user_dir)
+        t24_flat_after_approval = [f for f in os.listdir(t24_pending) if f.startswith("sig_flatten_")]
+        t24_c3 = len(t24_flat_after_approval) == 0
+
+        t24_part_c = t24_c1 and t24_c2 and t24_c3
+
+        # Teil D: Echtzeit-Broker-Kurse Bid/Ask aus fleet_snapshot.json & yfinance-Fallback
+        t24_snap_path = os.path.join(t24_user_dir, "fleet_snapshot.json")
+        t24_now_utc = datetime.datetime.now(datetime.timezone.utc)
+        atomic_write_json(
+            t24_snap_path,
+            {
+                "timestamp": t24_now_utc.isoformat(),
+                "live_prices": {
+                    "EURUSD": {"bid": 1.09500, "ask": 1.09620}
+                },
+            },
+        )
+        globals()["get_current_price"] = lambda sym, ttl=15: 9.99999
+
+        t24_price_short = get_trade_execution_price(t24_user_dir, "EURUSD=X", is_long=False)
+        t24_price_long = get_trade_execution_price(t24_user_dir, "EURUSD=X", is_long=True)
+
+        t24_stale_utc = t24_now_utc - datetime.timedelta(seconds=120)
+        atomic_write_json(
+            t24_snap_path,
+            {
+                "timestamp": t24_stale_utc.isoformat(),
+                "live_prices": {
+                    "EURUSD": {"bid": 1.09500, "ask": 1.09620}
+                },
+            },
+        )
+        t24_price_fallback = get_trade_execution_price(t24_user_dir, "EURUSD=X", is_long=False)
+
+        t24_part_d = (
+            t24_price_short == 1.09620
+            and t24_price_long == 1.09500
+            and t24_price_fallback == 9.99999
+        )
+
+    except Exception as e:
+        t24_error = e
+    finally:
+        PENDING_SIGNALS_DIR = old_pending_24
+        PROCESSING_SIGNALS_DIR = old_processing_24
+        if old_awaiting_24 is not None:
+            globals()["AWAITING_APPROVAL_DIR"] = old_awaiting_24
+        if old_ny_24:
+            globals()["get_ny_now"] = old_ny_24
+        if old_ber_24:
+            globals()["get_berlin_now"] = old_ber_24
+        if old_price_24:
+            globals()["get_current_price"] = old_price_24
+        import shutil
+        shutil.rmtree(t24_user_dir, ignore_errors=True)
+
+    if t24_error is None and t24_part_a and t24_part_b and t24_part_c and t24_part_d:
+        log("[PASS] SEMI_AUTO Spooling, Approval-Duplikatsperre, Live-Broker-Ticks & US/EU-DST-Flatten")
+    else:
+        err_suffix = f" | Fehler: {t24_error}" if t24_error is not None else ""
+        log(f"[FAIL] SEMI_AUTO Spooling, Approval-Duplikatsperre, Live-Broker-Ticks & US/EU-DST-Flatten (A:{t24_part_a}, B:{t24_part_b}, C:{t24_part_c}, D:{t24_part_d}){err_suffix}")
+        all_passed = False
+
+    # 25. TEST: US-FEIERTAGS- & EARLY-CLOSE-GUARD (THANKSGIVING, BLACK FRIDAY & EOD-FUTURES)
+    try:
+        t25_thanksgiving_st, _ = get_us_market_day_status(datetime.date(2026, 11, 26))
+        t25_black_friday_st, _ = get_us_market_day_status(datetime.date(2026, 11, 27))
+        t25_july3_obs_st, _ = get_us_market_day_status(datetime.date(2026, 7, 3))
+        t25_july3_ec = is_cme_early_close_day(datetime.date(2026, 7, 3))
+        t25_regular_st, _ = get_us_market_day_status(datetime.date(2026, 12, 1))
+
+        t25_cal_ok = (
+            t25_thanksgiving_st == "HOLIDAY"
+            and t25_black_friday_st == "EARLY_CLOSE"
+            and is_cme_early_close_day(datetime.date(2026, 11, 27)) is True
+            and t25_july3_obs_st == "HOLIDAY"
+            and t25_july3_ec is False
+            and t25_regular_st == "REGULAR"
+        )
+
+        try:
+            t25_tz_ny = zoneinfo.ZoneInfo("America/New_York")
+            t25_tz_ber = zoneinfo.ZoneInfo("Europe/Berlin")
+        except Exception:
+            t25_tz_ny = datetime.timezone(datetime.timedelta(hours=-5))
+            t25_tz_ber = datetime.timezone(datetime.timedelta(hours=1))
+
+        dt_ny_tg = datetime.datetime(2026, 11, 26, 10, 0, 0, tzinfo=t25_tz_ny)
+        dt_ber_tg = datetime.datetime(2026, 11, 26, 16, 0, 0, tzinfo=t25_tz_ber)
+        t25_blk_6e_tg, _ = is_in_entry_blackout("6E=F", "eod_futures", dt_ny_tg, dt_ber_tg)
+        t25_blk_nq_tg, _ = is_in_entry_blackout("NQ=F", "eod_futures", dt_ny_tg, dt_ber_tg)
+
+        dt_ny_bf_1245 = datetime.datetime(2026, 11, 27, 12, 45, 0, tzinfo=t25_tz_ny)
+        dt_ber_bf_1245 = datetime.datetime(2026, 11, 27, 18, 45, 0, tzinfo=t25_tz_ber)
+        t25_blk_6e_bf_late, _ = is_in_entry_blackout("6E=F", "eod_futures", dt_ny_bf_1245, dt_ber_bf_1245)
+        t25_blk_nq_bf_late, _ = is_in_entry_blackout("NQ=F", "eod_futures", dt_ny_bf_1245, dt_ber_bf_1245)
+
+        dt_ny_bf_1000 = datetime.datetime(2026, 11, 27, 10, 0, 0, tzinfo=t25_tz_ny)
+        dt_ber_bf_1000 = datetime.datetime(2026, 11, 27, 16, 0, 0, tzinfo=t25_tz_ber)
+        t25_blk_6e_bf_open, _ = is_in_entry_blackout("6E=F", "eod_futures", dt_ny_bf_1000, dt_ber_bf_1000)
+        t25_blk_nq_bf_open, _ = is_in_entry_blackout("NQ=F", "eod_futures", dt_ny_bf_1000, dt_ber_bf_1000)
+
+        t25_blk_ok = (
+            t25_blk_6e_tg is True
+            and t25_blk_nq_tg is True
+            and t25_blk_6e_bf_late is True
+            and t25_blk_nq_bf_late is True
+            and t25_blk_6e_bf_open is False
+            and t25_blk_nq_bf_open is False
+        )
+
+        if t25_cal_ok and t25_blk_ok:
+            log("[PASS] US-Feiertags- & Early-Close-Guard (Thanksgiving, Black Friday & EOD-Futures)")
+        else:
+            log(f"[FAIL] US-Feiertags- & Early-Close-Guard (Kalender:{t25_cal_ok}, Blackout:{t25_blk_ok})")
+            all_passed = False
+    except Exception as e:
+        log(f"[FAIL] US-Feiertags- & Early-Close-Guard (Fehler: {e})")
         all_passed = False
 
     log("================================================================================")
